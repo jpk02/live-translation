@@ -229,13 +229,18 @@ if (!isOperator) {
     function startListeningForTranslations() {
       if (childListener) { translationsRef.off('child_added', childListener); childListener = null; }
       translationsRef.limitToLast(10).once('value', function(snap) {
-        var data = snap.val(), lastKey = null;
+        var data = snap.val();
+        var lastKey = null;
         if (data) {
           lastKey = Object.keys(data).pop();
           Object.values(data).forEach(function(item) { if (item && item.text) displayFinalLine(item.text, null, true); });
         }
+        // Only listen for keys strictly after what we already displayed
+        var query = lastKey
+          ? translationsRef.orderByKey().startAfter(lastKey)
+          : translationsRef.orderByKey().limitToLast(1);
         childListener = function(s) { var it = s.val(); if (it && it.text) displayFinalLine(it.text, null, true); };
-        translationsRef.orderByKey().startAfter(lastKey || '0').on('child_added', childListener);
+        query.on('child_added', childListener);
       });
     }
     startListeningForTranslations();
