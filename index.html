@@ -132,8 +132,8 @@
 
 <div id="display">
   <div id="placeholder">
-    <h1>LIVE TRANSLATION</h1>
-    <p>Korean → English</p>
+    <h1>CHIU YANG CHURCH</h1>
+
   </div>
   <div id="translation-box">
     <div id="translation-lines"></div>
@@ -190,6 +190,14 @@ if (!isOperator) {
       translationsRef.orderByKey().startAfter(lastKey).on('child_added', function(snap) {
         var item = snap.val();
         if (item && item.text) displayTranslation(item.text);
+      });
+
+      // Clear viewer when operator clears
+      translationsRef.on('value', function(snap) {
+        if (!snap.val()) {
+          $('translation-lines').innerHTML = '';
+          $('placeholder').style.display = 'block';
+        }
       });
     });
   });
