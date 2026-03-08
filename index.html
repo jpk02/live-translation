@@ -126,6 +126,18 @@
     min-height: 1.4em;
     font-family: sans-serif;
   }
+  #debug-badge {
+    position: fixed;
+    bottom: 24px; left: 20px;
+    font-size: 11px;
+    font-family: monospace;
+    color: #555;
+    background: #111;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #222;
+    pointer-events: none;
+  }
   #mic-indicator {
     position: fixed;
     bottom: 24px; right: 28px;
@@ -166,6 +178,7 @@
   </div>
 </div>
 <div id="mic-indicator"></div>
+<div id="debug-badge">window: 0 chunks</div>
 
 <script>
 var WORKER_URL = 'https://live-translation.pauljkim22.workers.dev';
@@ -200,7 +213,7 @@ var streamAbortCtrl = null;
 var revisionWindow = [];      // [{ko, en}]  — last few final chunks
 var revisionLineEl = null;    // the DOM element currently being revised
 
-var LOCK_SILENCE_MS = 2200;   // ms of silence before we lock & revise
+var LOCK_SILENCE_MS = 4000;   // ms of silence before we lock & revise
 
 function $(id) { return document.getElementById(id); }
 
@@ -578,6 +591,8 @@ async function triggerTranslation(text, isRevision) {
               // Quick translation done — add to revision window, DON'T lock yet
               // Locking happens after LOCK_SILENCE_MS of no new speech
               revisionWindow.push({ ko: koChunk, en: currentStreamText.trim() });
+              var dbg = document.getElementById('debug-badge');
+              if (dbg) dbg.textContent = 'window: ' + revisionWindow.length + ' chunks | lock in ' + (LOCK_SILENCE_MS/1000) + 's';
               if (revisionWindow.length === 1) {
                 // First chunk: lock immediately to screen so user sees something
                 var el = lockStreamingLine(currentStreamText);
