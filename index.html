@@ -177,28 +177,41 @@ if (!isOperator) {
     $('controls').style.display = 'none';
     $('error-box').style.display = 'none';
 
-    // Load last 10 then listen for new
-    translationsRef.limitToLast(10).once('value', function(snapshot) {
-      var data = snapshot.val();
-      var lastKey = null;
-      if (data) {
-        lastKey = Object.keys(data).pop();
-        Object.values(data).forEach(function(item) {
-          if (item && item.text) displayTranslation(item.text);
-        });
-      }
-      translationsRef.orderByKey().startAfter(lastKey).on('child_added', function(snap) {
-        var item = snap.val();
-        if (item && item.text) displayTranslation(item.text);
-      });
+    var childListener = null;
 
-      // Clear viewer when operator clears
-      translationsRef.on('value', function(snap) {
-        if (!snap.val()) {
-          $('translation-lines').innerHTML = '';
-          $('placeholder').style.display = 'block';
+    function startListeningForTranslations() {
+      // Remove previous listener if any
+      if (childListener) {
+        translationsRef.off('child_added', childListener);
+        childListener = null;
+      }
+
+      translationsRef.limitToLast(10).once('value', function(snapshot) {
+        var data = snapshot.val();
+        var lastKey = null;
+        if (data) {
+          lastKey = Object.keys(data).pop();
+          Object.values(data).forEach(function(item) {
+            if (item && item.text) displayTranslation(item.text);
+          });
         }
+        childListener = function(snap) {
+          var item = snap.val();
+          if (item && item.text) displayTranslation(item.text);
+        };
+        translationsRef.orderByKey().startAfter(lastKey || '0').on('child_added', childListener);
       });
+    }
+
+    startListeningForTranslations();
+
+    // Watch for clear
+    translationsRef.on('value', function(snap) {
+      if (!snap.val()) {
+        $('translation-lines').innerHTML = '';
+        $('placeholder').style.display = 'block';
+        startListeningForTranslations();
+      }
     });
   });
 }
