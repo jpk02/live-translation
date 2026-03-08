@@ -270,6 +270,7 @@ function reclassLines() {
     var fromBottom = all.length - 1 - i;
     if (fromBottom === 0) el.classList.add('newest');
     else if (fromBottom === 1) el.classList.add('older');
+    else if (fromBottom === 2) el.classList.add('older');
     else el.classList.add('oldest');
   });
 }
