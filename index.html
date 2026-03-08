@@ -41,13 +41,10 @@
     font-size: 13px;
     cursor: pointer;
     font-weight: 600;
-    transition: background 0.2s;
   }
   #startBtn { background: #2ecc71; color: #000; }
-  #startBtn:hover { background: #27ae60; }
   #startBtn.active { background: #e74c3c; color: #fff; }
   #fullscreenBtn { background: #333; color: #ccc; margin-left: auto; }
-  #fullscreenBtn:hover { background: #444; }
   #status { font-size: 12px; color: #666; min-width: 160px; }
   #status.listening { color: #2ecc71; }
   #status.translating { color: #f39c12; }
@@ -122,7 +119,7 @@
 <body>
 
 <div id="controls">
-  <label style="font-size:13px;color:#888;white-space:nowrap;">Sermon topic / scripture:</label>
+  <label style="font-size:13px;color:#888;">Sermon topic:</label>
   <input type="text" id="sermonContext" placeholder="e.g. John 3:16, faith, grace" />
   <button id="startBtn" onclick="toggleListening()">▶ Start</button>
   <span id="status">Ready</span>
@@ -142,30 +139,11 @@
 </div>
 <div id="mic-indicator"></div>
 
-<!-- Firebase must load before our script -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.0/firebase-app-compat.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.0/firebase-database-compat.min.js"></script>
-
 <script>
+// ===== CONFIG =====
 var WORKER_URL = 'https://live-translation.pauljkim22.workers.dev';
+// ==================
 
-var firebaseConfig = {
-  apiKey: "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
-  authDomain: "live-translation-fd583.firebaseapp.com",
-  databaseURL: "https://live-translation-fd583-default-rtdb.firebaseio.com",
-  projectId: "live-translation-fd583",
-  storageBucket: "live-translation-fd583.firebasestorage.app",
-  messagingSenderId: "189364035896",
-  appId: "1:189364035896:web:552700e29449859089a1cd"
-};
-
-firebase.initializeApp(firebaseConfig);
-var db = firebase.database();
-var translationsRef = db.ref('translations');
-var correctionsRef = db.ref('corrections');
-var isOperator = window.location.search.includes('operator');
-
-// Global state
 var rec = null;
 var isListening = false;
 var translateTimer = null;
@@ -174,45 +152,31 @@ var pending = '';
 var isTranslating = false;
 var historyLog = [];
 
-// DOM refs — assigned after DOM ready
-var linesEl, interimEl, statusEl, startBtn, micDot, placeholder, errorBox, displayEl, controls;
-
-function initDOM() {
-  linesEl     = document.getElementById('translation-lines');
-  interimEl   = document.getElementById('interim-text');
-  statusEl    = document.getElementById('status');
-  startBtn    = document.getElementById('startBtn');
-  micDot      = document.getElementById('mic-indicator');
-  placeholder = document.getElementById('placeholder');
-  errorBox    = document.getElementById('error-box');
-  displayEl   = document.getElementById('display');
-  controls    = document.getElementById('controls');
-}
+function $(id) { return document.getElementById(id); }
 
 function showError(msg) {
-  errorBox.style.display = 'block';
-  errorBox.textContent = msg;
+  $('error-box').style.display = 'block';
+  $('error-box').textContent = msg;
   setStatus('Error', 'error');
 }
-function clearError() { errorBox.style.display = 'none'; }
+function clearError() { $('error-box').style.display = 'none'; }
 function setStatus(msg, cls) {
-  statusEl.textContent = msg;
-  statusEl.className = cls || '';
+  $('status').textContent = msg;
+  $('status').className = cls || '';
 }
 
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen();
-    controls.style.display = 'none';
-    errorBox.style.display = 'none';
+    $('controls').style.display = 'none';
   } else {
     document.exitFullscreen();
-    controls.style.display = 'flex';
+    $('controls').style.display = 'flex';
   }
 }
 
 function reclassLines() {
-  var all = linesEl.querySelectorAll('.tline');
+  var all = $('translation-lines').querySelectorAll('.tline');
   all.forEach(function(el, i) {
     el.classList.remove('newest', 'older', 'oldest');
     var fromBottom = all.length - 1 - i;
@@ -223,7 +187,9 @@ function reclassLines() {
 }
 
 function displayTranslation(text) {
-  placeholder.style.display = 'none';
+  $('placeholder').style.display = 'none';
+  var linesEl = $('translation-lines');
+  var displayEl = $('display');
   var div = document.createElement('div');
   div.className = 'tline newest';
   div.textContent = text;
@@ -250,10 +216,8 @@ function toggleListening() {
 function startListening() {
   clearError();
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    showError('Speech recognition not supported. Please use Google Chrome.');
-    return;
-  }
+  if (!SR) { showError('Please use Google Chrome.'); return; }
+
   rec = new SR();
   rec.lang = 'ko-KR';
   rec.continuous = true;
@@ -261,11 +225,11 @@ function startListening() {
 
   rec.onstart = function() {
     isListening = true;
-    startBtn.textContent = '■ Stop';
-    startBtn.classList.add('active');
-    micDot.classList.add('active');
+    $('startBtn').textContent = '■ Stop';
+    $('startBtn').classList.add('active');
+    $('mic-indicator').classList.add('active');
     setStatus('🎤 Listening…', 'listening');
-    placeholder.style.display = 'none';
+    $('placeholder').style.display = 'none';
     rollingTimer = setInterval(function() {
       if (pending.trim() && !isTranslating) translateText(pending.trim());
     }, 2000);
@@ -278,9 +242,9 @@ function startListening() {
       if (e.results[i].isFinal) final += t;
       else interim += t;
     }
-    if (interim) interimEl.textContent = '"' + interim + '"';
+    if (interim) $('interim-text').textContent = '"' + interim + '"';
     if (final) {
-      interimEl.textContent = '';
+      $('interim-text').textContent = '';
       pending += ' ' + final.trim();
       clearTimeout(translateTimer);
       translateTimer = setTimeout(function() {
@@ -291,10 +255,7 @@ function startListening() {
 
   rec.onerror = function(e) {
     if (e.error === 'no-speech' || e.error === 'aborted') return;
-    if (e.error === 'not-allowed') {
-      showError('Microphone access denied.');
-      stopListening();
-    }
+    if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
   };
 
   rec.onend = function() {
@@ -311,10 +272,10 @@ function stopListening() {
   if (rec) { try { rec.stop(); } catch(e) {} rec = null; }
   if (rollingTimer) { clearInterval(rollingTimer); rollingTimer = null; }
   clearTimeout(translateTimer);
-  startBtn.textContent = '▶ Start';
-  startBtn.classList.remove('active');
-  micDot.classList.remove('active');
-  interimEl.textContent = '';
+  $('startBtn').textContent = '▶ Start';
+  $('startBtn').classList.remove('active');
+  $('mic-indicator').classList.remove('active');
+  $('interim-text').textContent = '';
   setStatus('Stopped');
 }
 
@@ -326,11 +287,10 @@ function translateText(text, retryCount) {
   setStatus('Translating…', 'translating');
   clearError();
 
-  var sermonContext = document.getElementById('sermonContext').value.trim();
-  var sermonLine = sermonContext ? 'The sermon topic/scripture today is: ' + sermonContext + '\n\n' : '';
+  var sermonContext = $('sermonContext').value.trim();
+  var sermonLine = sermonContext ? 'Sermon topic: ' + sermonContext + '\n\n' : '';
   var contextStr = historyLog.length
-    ? 'Recent translations (index 0 = most recent):\n' +
-      historyLog.slice(-2).reverse().map(function(h, i) {
+    ? 'Recent:\n' + historyLog.slice(-2).reverse().map(function(h, i) {
         return i + ': KO: ' + h.ko + ' | EN: ' + h.en;
       }).join('\n') + '\n\n'
     : '';
@@ -341,23 +301,20 @@ function translateText(text, retryCount) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 150,
-      system: 'You are a live interpreter for a Christian worship service. Translate Korean into natural, reverent English. Korean often omits subjects — make your best guess from context. If English words appear in the input, keep them as-is.\n\nRespond in this exact JSON format:\n{\n  "translation": "the new English translation",\n  "corrections": [\n    { "index": 0, "text": "corrected version of that line" }\n  ]\n}\n"corrections" should ONLY be used when new context reveals a previous subject, pronoun, or referent was clearly wrong. Return ONLY the JSON.',
-      messages: [{ role: 'user', content: sermonLine + contextStr + 'New Korean text to translate:\n' + text }]
+      system: 'You are a live interpreter for a Christian worship service. Translate Korean into natural, reverent English. Korean often omits subjects — infer from context. Keep any English words as-is.\n\nRespond ONLY in this JSON format:\n{"translation":"english text","corrections":[{"index":0,"text":"corrected line"}]}\n\nOnly include corrections when a subject/pronoun was clearly wrong. Return ONLY valid JSON.',
+      messages: [{ role: 'user', content: sermonLine + contextStr + 'Translate:\n' + text }]
     })
   })
   .then(function(res) {
     if (!res.ok) {
       return res.json().then(function(err) {
         var msg = err && err.error && err.error.message ? err.error.message : 'HTTP ' + res.status;
-        if (res.status === 529 || (msg && msg.toLowerCase().includes('overload'))) {
+        if (res.status === 529 || msg.toLowerCase().includes('overload')) {
           if (retryCount < 3) {
             setStatus('Server busy, retrying…', 'translating');
-            setTimeout(function() {
-              isTranslating = false;
-              translateText(text, retryCount + 1);
-            }, 2000 * (retryCount + 1));
+            setTimeout(function() { isTranslating = false; translateText(text, retryCount + 1); }, 2000 * (retryCount + 1));
           } else {
-            showError('Server overloaded after 3 retries. Please try again shortly.');
+            showError('Server overloaded. Try again shortly.');
           }
         } else {
           showError('API error: ' + msg);
@@ -365,77 +322,28 @@ function translateText(text, retryCount) {
       });
     }
     return res.json().then(function(data) {
-      var raw = data && data.content && data.content[0] && data.content[0].text
-        ? data.content[0].text.trim() : null;
-      if (!raw) { showError('No translation returned.'); return; }
+      var raw = data && data.content && data.content[0] ? data.content[0].text.trim() : null;
+      if (!raw) { showError('No response from API.'); return; }
       var parsed;
-      try {
-        parsed = JSON.parse(raw.replace(/^```json|```$/g, '').trim());
-      } catch(e) {
-        parsed = { translation: raw, corrections: [] };
-      }
+      try { parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()); }
+      catch(e) { parsed = { translation: raw, corrections: [] }; }
       if (parsed.translation) {
         clearError();
-        if (parsed.corrections && parsed.corrections.length) {
-          correctionsRef.set(parsed.corrections);
-          var lines = linesEl.querySelectorAll('.tline');
-          parsed.corrections.forEach(function(c) {
-            var lineIdx = lines.length - 1 - c.index;
-            if (lines[lineIdx]) lines[lineIdx].textContent = c.text;
-          });
-        }
-        translationsRef.push({ text: parsed.translation, timestamp: firebase.database.ServerValue.TIMESTAMP });
         displayTranslation(parsed.translation);
         historyLog.push({ ko: text, en: parsed.translation });
         if (historyLog.length > 6) historyLog.shift();
         setStatus('🎤 Listening…', 'listening');
       } else {
-        showError('No translation in response: ' + raw);
+        showError('Unexpected response: ' + raw);
       }
     });
   })
-  .catch(function(err) {
-    showError('Network error: ' + err.message);
-  })
+  .catch(function(err) { showError('Network error: ' + err.message); })
   .finally(function() {
     isTranslating = false;
     if (pending.trim()) translateText(pending.trim());
   });
 }
-
-// Initialize everything once DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
-  initDOM();
-
-  if (!isOperator) {
-    controls.style.display = 'none';
-    errorBox.style.display = 'none';
-
-    translationsRef.limitToLast(10).once('value', function(snapshot) {
-      var data = snapshot.val();
-      if (data) {
-        Object.values(data).forEach(function(item) {
-          if (item && item.text) displayTranslation(item.text);
-        });
-      }
-      var lastKey = data ? Object.keys(data).pop() : null;
-      translationsRef.orderByKey().startAfter(lastKey).on('child_added', function(snap) {
-        var item = snap.val();
-        if (item && item.text) displayTranslation(item.text);
-      });
-    });
-
-    correctionsRef.on('value', function(snapshot) {
-      var corrections = snapshot.val();
-      if (!corrections || !Array.isArray(corrections)) return;
-      var lines = linesEl.querySelectorAll('.tline');
-      corrections.forEach(function(c) {
-        var lineIdx = lines.length - 1 - c.index;
-        if (lines[lineIdx]) lines[lineIdx].textContent = c.text;
-      });
-    });
-  }
-});
 </script>
 </body>
 </html>
