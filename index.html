@@ -94,7 +94,7 @@
   }
   .tline.newest { color: #ffffff; }
   .tline.older  { color: #ffffff; }
-  .tline.oldest { color: #777777; }
+  .tline.oldest { color: #666666; }
 
   /* Streaming line — same white as newest, no color flash */
   #streaming-line {
@@ -265,12 +265,11 @@ function toggleFullscreen() {
 
 function reclassLines() {
   var all = $('translation-lines').querySelectorAll('.tline');
+  var total = all.length;
   all.forEach(function(el, i) {
     el.classList.remove('newest','older','oldest');
-    var fromBottom = all.length - 1 - i;
-    if (fromBottom === 0) el.classList.add('newest');
-    else if (fromBottom === 1) el.classList.add('older');
-    else if (fromBottom === 2) el.classList.add('older');
+    var fromBottom = total - 1 - i;
+    if (fromBottom <= 1) el.classList.add(fromBottom === 0 ? 'newest' : 'older');
     else el.classList.add('oldest');
   });
 }
