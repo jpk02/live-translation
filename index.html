@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Translation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    color: #f0f0f0;
+    font-family: 'Georgia', serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #controls {
+    background: #111;
+    border-bottom: 1px solid #222;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  input[type="text"] {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #f0f0f0;
+    padding: 6px 10px;
+    font-size: 13px;
+    width: 260px;
+  }
+  button {
+    border: none;
+    border-radius: 6px;
+    padding: 7px 18px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+  #startBtn { background: #2ecc71; color: #000; }
+  #startBtn:hover { background: #27ae60; }
+  #startBtn.active { background: #e74c3c; color: #fff; }
+  #fullscreenBtn { background: #333; color: #ccc; margin-left: auto; }
+  #fullscreenBtn:hover { background: #444; }
+  #status { font-size: 12px; color: #666; min-width: 160px; }
+  #status.listening { color: #2ecc71; }
+  #status.translating { color: #f39c12; }
+  #status.error { color: #e74c3c; }
+  #error-box {
+    display: none;
+    background: #1a0000;
+    border: 1px solid #500;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 12px;
+    color: #ff6b6b;
+    margin: 6px 20px;
+    font-family: monospace;
+    word-break: break-all;
+    flex-shrink: 0;
+  }
+  #display {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 40px 60px;
+    position: relative;
+    overflow: hidden;
+  }
+  #placeholder {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #2a2a2a;
+    pointer-events: none;
+  }
+  #placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
+  #placeholder p { font-size: 16px; margin-top: 12px; color: #1e1e1e; }
+  #translation-box { width: 100%; max-width: 1200px; text-align: center; }
+  #translation-lines { display: flex; flex-direction: column; gap: 32px; margin-bottom: 12px; }
+  .tline {
+    font-size: clamp(24px, 4vw, 60px);
+    line-height: 1.5;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.8);
+    transition: color 0.5s, opacity 0.5s;
+  }
+  .tline.newest { color: #ffffff; }
+  .tline.older  { color: #777777; }
+  .tline.oldest { color: #3a3a3a; }
+  #interim-text {
+    font-size: clamp(13px, 1.6vw, 20px);
+    color: #444;
+    margin-top: 18px;
+    font-style: italic;
+    min-height: 1.4em;
+    font-family: sans-serif;
+  }
+  #mic-indicator {
+    position: fixed;
+    bottom: 24px; right: 28px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #333;
+  }
+  #mic-indicator.active {
+    background: #2ecc71;
+    box-shadow: 0 0 10px #2ecc71;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <label id="contextLabel" style="font-size:13px;color:#888;white-space:nowrap;">Sermon topic / scripture:</label>
+  <input type="text" id="sermonContext" placeholder="e.g. John 3:16, faith, grace" />
+  <button id="startBtn">▶ Start</button>
+  <span id="status">Ready</span>
+  <button id="fullscreenBtn">⛶ Fullscreen</button>
+</div>
+<div id="error-box"></div>
+
+<div id="display">
+  <div id="placeholder">
+    <h1>LIVE TRANSLATION</h1>
+    <p>Korean → English</p>
+  </div>
+  <div id="translation-box">
+    <div id="translation-lines"></div>
+    <div id="interim-text"></div>
+  </div>
+</div>
+<div id="mic-indicator"></div>
+
+<!-- Firebase compat (no module needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<script>
+// ---- CONFIG ----
+var WORKER_URL = 'https://live-translation.pauljkim22.workers.dev';
+
+var firebaseConfig = {
+  apiKey: "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
+  authDomain: "live-translation-fd583.firebaseapp.com",
+  databaseURL: "https://live-translation-fd583-default-rtdb.firebaseio.com",
+  projectId: "live-translation-fd583",
+  storageBucket: "live-translation-fd583.firebasestorage.app",
+  messagingSenderId: "189364035896",
+  appId: "1:189364035896:web:552700e29449859089a1cd"
+};
+// ----------------
+
+firebase.initializeApp(firebaseConfig);
+var db = firebase.database();
+var translationsRef = db.ref('translations');
+var correctionsRef = db.ref('corrections');
+
+var isOperator = window.location.search.includes('operator');
+
+window.addEventListener('DOMContentLoaded', function() {
+
+  var rec = null;
+  var isListening = false;
+  var translateTimer = null;
+  var rollingTimer = null;
+  var pending = '';
+  var isTranslating = false;
+  var historyLog = [];
+
+  var linesEl     = document.getElementById('translation-lines');
+  var interimEl   = document.getElementById('interim-text');
+  var statusEl    = document.getElementById('status');
+  var startBtn    = document.getElementById('startBtn');
+  var micDot      = document.getElementById('mic-indicator');
+  var placeholder = document.getElementById('placeholder');
+  var errorBox    = document.getElementById('error-box');
+  var displayEl   = document.getElementById('display');
+  var controls    = document.getElementById('controls');
+
+  function showError(msg) {
+    errorBox.style.display = 'block';
+    errorBox.textContent = msg;
+    setStatus('Error', 'error');
+  }
+  function clearError() { errorBox.style.display = 'none'; }
+  function setStatus(msg, cls) {
+    statusEl.textContent = msg;
+    statusEl.className = cls || '';
+  }
+
+  function reclassLines() {
+    var all = linesEl.querySelectorAll('.tline');
+    all.forEach(function(el, i) {
+      el.classList.remove('newest', 'older', 'oldest');
+      var fromBottom = all.length - 1 - i;
+      if (fromBottom === 0) el.classList.add('newest');
+      else if (fromBottom === 1) el.classList.add('older');
+      else el.classList.add('oldest');
+    });
+  }
+
+  function displayTranslation(text) {
+    placeholder.style.display = 'none';
+    var div = document.createElement('div');
+    div.className = 'tline newest';
+    div.textContent = text;
+    div.style.opacity = '0';
+    linesEl.appendChild(div);
+    requestAnimationFrame(function() {
+      requestAnimationFrame(function() { div.style.opacity = '1'; });
+    });
+    reclassLines();
+    requestAnimationFrame(function() {
+      var maxHeight = displayEl.clientHeight - 80;
+      while (linesEl.scrollHeight > maxHeight && linesEl.children.length > 1) {
+        linesEl.removeChild(linesEl.firstChild);
+        reclassLines();
+      }
+    });
+  }
+
+  startBtn.addEventListener('click', toggleListening);
+  document.getElementById('fullscreenBtn').addEventListener('click', function() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+      controls.style.display = 'none';
+      errorBox.style.display = 'none';
+    } else {
+      document.exitFullscreen();
+      controls.style.display = 'flex';
+    }
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'h' || e.key === 'H') {
+      controls.style.display = controls.style.display === 'none' ? 'flex' : 'none';
+    }
+  });
+
+  // ---- VIEWER MODE ----
+  if (!isOperator) {
+    controls.style.display = 'none';
+    errorBox.style.display = 'none';
+
+    // Load last 10 translations on join
+    translationsRef.limitToLast(10).once('value', function(snapshot) {
+      var data = snapshot.val();
+      if (data) {
+        Object.values(data).forEach(function(item) {
+          if (item && item.text) displayTranslation(item.text);
+        });
+      }
+      // Then listen for new ones
+      var lastKey = data ? Object.keys(data).pop() : null;
+      translationsRef.orderByKey().startAfter(lastKey).on('child_added', function(snap) {
+        var item = snap.val();
+        if (item && item.text) displayTranslation(item.text);
+      });
+    });
+
+    // Listen for corrections
+    correctionsRef.on('value', function(snapshot) {
+      var corrections = snapshot.val();
+      if (!corrections || !Array.isArray(corrections)) return;
+      var lines = linesEl.querySelectorAll('.tline');
+      corrections.forEach(function(c) {
+        var lineIdx = lines.length - 1 - c.index;
+        if (lines[lineIdx]) lines[lineIdx].textContent = c.text;
+      });
+    });
+
+    return;
+  }
+
+  // ---- OPERATOR MODE ----
+
+  function toggleListening() {
+    showError('DEBUG: toggleListening called, isListening=' + isListening);
+    if (isListening) stopListening();
+    else startListening();
+  }
+
+  function startListening() {
+    clearError();
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      showError('Speech recognition not supported. Please use Google Chrome on a desktop computer.');
+      return;
+    }
+
+    rec = new SR();
+    rec.lang = 'ko-KR';
+    rec.continuous = true;
+    rec.interimResults = true;
+
+    rec.onstart = function() {
+      isListening = true;
+      startBtn.textContent = '■ Stop';
+      startBtn.classList.add('active');
+      micDot.classList.add('active');
+      setStatus('🎤 Listening…', 'listening');
+      placeholder.style.display = 'none';
+      rollingTimer = setInterval(function() {
+        if (pending.trim() && !isTranslating) translateText(pending.trim());
+      }, 2000);
+    };
+
+    rec.onresult = function(e) {
+      var interim = '', final = '';
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        var t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) final += t;
+        else interim += t;
+      }
+      if (interim) interimEl.textContent = '"' + interim + '"';
+      if (final) {
+        interimEl.textContent = '';
+        pending += ' ' + final.trim();
+        clearTimeout(translateTimer);
+        translateTimer = setTimeout(function() {
+          if (pending.trim() && !isTranslating) translateText(pending.trim());
+        }, 400);
+      }
+    };
+
+    rec.onerror = function(e) {
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      if (e.error === 'not-allowed') {
+        showError('Microphone access denied.');
+        stopListening();
+      }
+    };
+
+    rec.onend = function() {
+      if (isListening) setTimeout(function() {
+        if (isListening) { try { rec.start(); } catch(e) {} }
+      }, 200);
+    };
+
+    rec.start();
+  }
+
+  function stopListening() {
+    isListening = false;
+    if (rec) { try { rec.stop(); } catch(e) {} rec = null; }
+    if (rollingTimer) { clearInterval(rollingTimer); rollingTimer = null; }
+    clearTimeout(translateTimer);
+    startBtn.textContent = '▶ Start';
+    startBtn.classList.remove('active');
+    micDot.classList.remove('active');
+    interimEl.textContent = '';
+    setStatus('Stopped');
+  }
+
+  function translateText(text, retryCount) {
+    retryCount = retryCount || 0;
+    if (isTranslating) return;
+    isTranslating = true;
+    pending = '';
+    setStatus('Translating…', 'translating');
+    clearError();
+
+    var sermonContext = document.getElementById('sermonContext').value.trim();
+    var sermonLine = sermonContext ? 'The sermon topic/scripture today is: ' + sermonContext + '\n\n' : '';
+    var contextStr = historyLog.length
+      ? 'Recent translations (index 0 = most recent):\n' +
+        historyLog.slice(-2).reverse().map(function(h, i) {
+          return i + ': KO: ' + h.ko + ' | EN: ' + h.en;
+        }).join('\n') + '\n\n'
+      : '';
+
+    fetch(WORKER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 150,
+        system: 'You are a live interpreter for a Christian worship service. Translate Korean into natural, reverent English. Korean often omits subjects — make your best guess from context. If English words appear in the input, keep them as-is.\n\nRespond in this exact JSON format:\n{\n  "translation": "the new English translation",\n  "corrections": [\n    { "index": 0, "text": "corrected version of that line" }\n  ]\n}\n"corrections" should ONLY be used when new context reveals a previous subject, pronoun, or referent was clearly wrong. Return ONLY the JSON.',
+        messages: [{ role: 'user', content: sermonLine + contextStr + 'New Korean text to translate:\n' + text }]
+      })
+    })
+    .then(function(res) {
+      if (!res.ok) {
+        return res.json().then(function(err) {
+          var msg = err && err.error && err.error.message ? err.error.message : 'HTTP ' + res.status;
+          if (res.status === 529 
