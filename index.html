@@ -555,7 +555,6 @@ async function triggerTranslation(text) {
     ? 'Recent:\n' + historyLog.slice(-2).map(function(h) { return 'EN: ' + h.en; }).join('\n') + '\n\n'
     : '';
 
-  if (streamAbortCtrl) streamAbortCtrl.abort();
   streamAbortCtrl = new AbortController();
 
   try {
