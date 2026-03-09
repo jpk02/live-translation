@@ -158,6 +158,7 @@ function reclassLines(){
 function displayFinalLine(text, skipFirebase){
   $('placeholder').style.display = 'none';
   var linesEl = $('translation-lines');
+  var viewport = $('translation-viewport');
 
   // Merge into last line if it's short
   var lastLine = linesEl.lastChild;
@@ -170,29 +171,48 @@ function displayFinalLine(text, skipFirebase){
     return lastLine;
   }
 
-  // Add new line — start white immediately, no opacity flash
+  // Add new line at bottom
   var div = document.createElement('div');
   div.className = 'tline newest';
   div.textContent = text;
   linesEl.appendChild(div);
 
-  // Remove oldest if over MAX_LINES
+  // Remove oldest lines beyond MAX_LINES
   while (linesEl.children.length > MAX_LINES) {
     linesEl.removeChild(linesEl.firstChild);
   }
   reclassLines();
 
-  // Slide entire block up by one line height
-  var lineH = div.offsetHeight + 14; // 14px = gap
-  linesEl.style.transition = 'none';
-  linesEl.style.transform = 'translateY(' + lineH + 'px)';
-  requestAnimationFrame(function(){ requestAnimationFrame(function(){
-    linesEl.style.transition = 'transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
-    linesEl.style.transform = 'translateY(0)';
-  }); });
+  // Size viewport to show exactly MAX_LINES worth of content
+  // then smoothly scroll it to show the latest
+  var lineH = div.offsetHeight;
+  var gap = 14;
+  var visibleH = (lineH + gap) * MAX_LINES - gap;
+  viewport.style.height = visibleH + 'px';
+
+  // Smooth scroll the viewport to bottom
+  var targetScroll = linesEl.scrollHeight - visibleH;
+  if (targetScroll > 0) {
+    smoothScroll(viewport, viewport.scrollTop, targetScroll, 700);
+  }
 
   if (!skipFirebase) translationsRef.push({ text:text, timestamp:firebase.database.ServerValue.TIMESTAMP });
   return div;
+}
+
+function smoothScroll(el, from, to, duration) {
+  var start = performance.now();
+  function step(now) {
+    var elapsed = now - start;
+    var progress = Math.min(elapsed / duration, 1);
+    // ease in-out cubic
+    var ease = progress < 0.5
+      ? 4 * progress * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+    el.scrollTop = from + (to - from) * ease;
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
 }
 
 function setStreamingText(text){
