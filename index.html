@@ -249,7 +249,8 @@ var currentStreamText = '';
 var streamAbortCtrl = null;
 var revisionWindow = [];
 var revisionLineEl = null;
-var lastRollingText = '';   // <-- NEW: tracks what the rolling timer last fired on
+var lastRollingText = '';
+var lastFinalIndex = -1;  // highest result index we've already processed as final
 
 // =============================================
 // SHARED UI HELPERS
@@ -419,6 +420,7 @@ function startListening() {
     $('mic-indicator').classList.add('active');
     setStatus('🎤 Listening…', 'listening');
     lastRollingText = '';
+    lastFinalIndex = -1;
 
     // Rolling fallback timer — fires every 5s but only acts on NEW text
     rollingTimer = setInterval(function() {
@@ -448,9 +450,14 @@ function startListening() {
   rec.onresult = function(e) {
     var interim = '', final = '';
     for (var i = e.resultIndex; i < e.results.length; i++) {
-      var t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) final += t;
-      else interim += t;
+      if (e.results[i].isFinal) {
+        if (i > lastFinalIndex) {
+          lastFinalIndex = i;
+          final += e.results[i][0].transcript;
+        }
+      } else {
+        interim += e.results[i][0].transcript;
+      }
     }
 
     if (interim) {
@@ -490,7 +497,9 @@ function startListening() {
   };
 
   rec.onend = function() {
-    if (isListening) setTimeout(function() { try { rec.start(); } catch(ex) {} }, 200);
+    if (isListening) setTimeout(function() {
+      try { lastFinalIndex = -1; rec.start(); } catch(ex) {}
+    }, 200);
   };
 
   rec.start();
@@ -546,6 +555,23 @@ async function triggerTranslation(text) {
   setStatus('Translating…', 'translating');
   clearError();
 
+  // Hard safety reset — if translation takes >15s something is broken
+  var safetyTimeout = setTimeout(function() {
+    if (isTranslating) {
+      console.warn('Safety timeout: forcing isTranslating reset');
+      if (currentStreamText.trim()) {
+        var t = currentStreamText.trim();
+        currentStreamText = '';
+        revisionWindow.push({ ko: koChunk, en: t });
+        lockStreamingLine(t);
+      }
+      isTranslating = false;
+      setStatus('🎤 Listening…', 'listening');
+      var dbg = $('debug-badge');
+      if (dbg) dbg.textContent = 'SAFETY RESET fired';
+    }
+  }, 15000);
+
   var sermonContext = $('sermonContext').value.trim();
   var sermonLine = sermonContext ? 'Sermon topic: ' + sermonContext + '\n\n' : '';
   var contextStr = historyLog.length
@@ -572,6 +598,7 @@ async function triggerTranslation(text) {
       var errData = await res.json();
       showError('API error: ' + (errData && errData.error ? errData.error.message : 'HTTP ' + res.status));
       isTranslating = false;
+      clearTimeout(safetyTimeout);
       return;
     }
 
@@ -597,6 +624,7 @@ async function triggerTranslation(text) {
             setStreamingText(currentStreamText);
           }
           if (parsed.type === 'message_stop') {
+            clearTimeout(safetyTimeout);
             var chunkText = currentStreamText.trim();
             currentStreamText = '';
 
@@ -620,6 +648,7 @@ async function triggerTranslation(text) {
 
     // Fallback if stream ends without message_stop
     if (isTranslating && currentStreamText.trim()) {
+      clearTimeout(safetyTimeout);
       var chunkText2 = currentStreamText.trim();
       currentStreamText = '';
       revisionWindow.push({ ko: koChunk, en: chunkText2 });
@@ -631,9 +660,14 @@ async function triggerTranslation(text) {
         lastRollingText = pending.trim();
         triggerTranslation(pending.trim());
       }
+    } else {
+      clearTimeout(safetyTimeout);
+      isTranslating = false;
+      setStatus('🎤 Listening…', 'listening');
     }
 
   } catch(err) {
+    clearTimeout(safetyTimeout);
     if (err.name === 'AbortError') { isTranslating = false; return; }
     showError('Network error: ' + err.message);
     isTranslating = false;
