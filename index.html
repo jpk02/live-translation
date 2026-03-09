@@ -173,11 +173,14 @@
   </div>
 </div>
 <div id="mic-indicator"></div>
-<div id="debug-badge">window: 0 chunks</div>
+<div id="debug-badge">ready</div>
 
 <script>
 var WORKER_URL = 'https://live-translation.pauljkim22.workers.dev';
-var LOCK_SILENCE_MS = 2200;
+var SILENCE_MS = 3000;   // wait 3s of silence before translating
+var MAX_CHARS  = 80;     // hard cap for long unbroken streams
+// Korean sentence-ending particles/endings that signal a complete thought
+var KO_ENDINGS = /[다요죠며라네요]/;
 
 var firebaseConfig = {
   apiKey: "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
@@ -235,26 +238,20 @@ if (!isOperator) {
 }
 
 // =============================================
-// OPERATOR MODE STATE
+// OPERATOR STATE
 // =============================================
 var rec = null;
 var isListening = false;
-var translateTimer = null;
-var lockTimer = null;
-var rollingTimer = null;
-var pending = '';
+var silenceTimer = null;
+var safetyTimer = null;
 var isTranslating = false;
 var historyLog = [];
 var currentStreamText = '';
 var streamAbortCtrl = null;
-var revisionWindow = [];
-var revisionLineEl = null;
-var lastRollingText = '';
-var lastFinalIndex = -1;
-var lastSentInterimLen = 0; // character length of interim we last sent to translation
+var bufferedText = '';   // Korean text accumulated since last translation
 
 // =============================================
-// SHARED UI HELPERS
+// UI HELPERS
 // =============================================
 function showError(msg) { $('error-box').style.display='block'; $('error-box').textContent=msg; setStatus('Error','error'); }
 function clearError() { $('error-box').style.display='none'; }
@@ -323,81 +320,28 @@ function setStreamingText(text) {
   }
 }
 
-function lockStreamingLine(text) {
-  setStreamingText('');
-  if (!text || !text.trim()) return null;
-  return displayFinalLine(text.trim());
-}
-
 function clearTranslations() {
   translationsRef.remove();
   $('translation-lines').innerHTML = '';
   setStreamingText('');
-  revisionWindow = [];
-  revisionLineEl = null;
-  lastRollingText = '';
+  bufferedText = '';
   $('placeholder').style.display = 'block';
 }
 
 // =============================================
-// REVISION
+// TRIGGER LOGIC
+// Called when we decide it's time to translate
+// whatever is in bufferedText.
 // =============================================
-async function reviseLastChunks() {
-  if (revisionWindow.length < 2) { revisionWindow = []; revisionLineEl = null; return; }
-
-  var koText  = revisionWindow.map(function(c) { return c.ko; }).join(' ');
-  var enDraft = revisionWindow.map(function(c) { return c.en; }).join(' ');
-  var targetEl = revisionLineEl;
-
-  var sermonContext = $('sermonContext').value.trim();
-  var sermonLine = sermonContext ? 'Sermon topic: ' + sermonContext + '\n\n' : '';
-  var contextStr = historyLog.length
-    ? 'Prior sentences:\n' + historyLog.slice(-2).map(function(h) { return h.en; }).join('\n') + '\n\n'
-    : '';
-
-  revisionWindow = [];
-  revisionLineEl = null;
-
-  try {
-    var res = await fetch(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 120,
-        stream: false,
-        system: 'You are a live interpreter for a Christian worship service. You are given Korean text spoken with pauses and a rough draft English translation. Produce ONE clean, natural, complete English sentence capturing the full meaning. Korean verbs come last — meaning often only becomes clear at the end. Speech recognition may mishear words — use context to infer correctly. Respond with ONLY the final English sentence, nothing else.',
-        messages: [{
-          role: 'user',
-          content: sermonLine + contextStr +
-            'Korean: ' + koText + '\n' +
-            'Draft: ' + enDraft + '\n\n' +
-            'Final translation:'
-        }]
-      })
-    });
-
-    if (!res.ok) return;
-    var data = await res.json();
-    var revised = data && data.content && data.content[0] ? data.content[0].text.trim() : null;
-    if (!revised) return;
-
-    var linesEl = $('translation-lines');
-    if (targetEl && linesEl.contains(targetEl)) {
-      var allLines = Array.prototype.slice.call(linesEl.querySelectorAll('.tline'));
-      var targetIdx = allLines.indexOf(targetEl);
-      for (var i = allLines.length - 1; i > targetIdx; i--) {
-        linesEl.removeChild(allLines[i]);
-      }
-      reclassLines();
-      displayFinalLine(revised, targetEl, true);
-    }
-
-    translationsRef.push({ text: revised, timestamp: firebase.database.ServerValue.TIMESTAMP });
-    historyLog.push({ en: revised });
-    if (historyLog.length > 6) historyLog.shift();
-
-  } catch(e) {}
+function flushBuffer() {
+  var text = bufferedText.trim();
+  bufferedText = '';
+  $('interim-text').textContent = '';
+  clearTimeout(silenceTimer);
+  clearTimeout(safetyTimer);
+  silenceTimer = null;
+  if (!text || isTranslating) return;
+  triggerTranslation(text);
 }
 
 // =============================================
@@ -409,147 +353,202 @@ function startListening() {
   clearError();
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { showError('Please use Google Chrome.'); return; }
-  rec = new SR();
-  rec.lang = 'ko-KR';
-  rec.continuous = true;
-  rec.interimResults = true;
 
-  rec.onstart = function() {
-    isListening = true;
-    $('startBtn').textContent = '■ Stop';
-    $('startBtn').classList.add('active');
-    $('mic-indicator').classList.add('active');
-    setStatus('🎤 Listening…', 'listening');
-    lastRollingText = '';
-    lastFinalIndex = -1;
-    lastSentInterimLen = 0;
+  function buildRec() {
+    var r = new SR();
+    r.lang = 'ko-KR';
+    r.continuous = true;
+    r.interimResults = true;
 
-    // Rolling fallback timer — fires every 5s but only acts on NEW text
-    rollingTimer = setInterval(function() {
-      if (isTranslating) return;
-      var interimEl = $('interim-text');
-      var interimText = interimEl ? interimEl.textContent.replace(/^"|"$/g, '').trim() : '';
-      if (!interimText) return;
+    r.onresult = function(e) {
+      // Accumulate all results into one string
+      var full = '';
+      for (var i = 0; i < e.results.length; i++) {
+        full += e.results[i][0].transcript;
+      }
+      full = full.trim();
+      if (!full) return;
 
-      var newLen = interimText.length - lastSentInterimLen;
-      if (newLen < 5) return;
+      bufferedText = full;
+      $('interim-text').textContent = '"' + full + '"';
 
-      var toSend = interimText.slice(lastSentInterimLen).trim();
-      if (!toSend) return;
-
-      lastSentInterimLen = interimText.length;
-      lastRollingText = interimText;
       var dbg = $('debug-badge');
-      if (dbg) dbg.textContent = 'rolling fired: "' + toSend.slice(0,30) + '"';
-      triggerTranslation(toSend);
-    }, 5000);
-  };
+      if (dbg) dbg.textContent = 'buf:' + full.length + 'ch | translating:' + isTranslating;
 
-  rec.onresult = function(e) {
-    var interim = '';
-    for (var i = 0; i < e.results.length; i++) {
-      interim += e.results[i][0].transcript;
-    }
-    interim = interim.trim();
-    if (!interim) return;
-    $('interim-text').textContent = '"' + interim + '"';
+      // Reset silence timer on every new speech event
+      clearTimeout(silenceTimer);
 
-    var dbg = $('debug-badge');
-    if (dbg) dbg.textContent = 'interim len:' + interim.length + ' translating:' + isTranslating;
+      // Hard cap: if buffer is very long, cut at a sentence ending or just flush
+      if (full.length >= MAX_CHARS) {
+        // Try to find a clean sentence-ending boundary in the last 20 chars
+        var tail = full.slice(-20);
+        var match = tail.search(KO_ENDINGS);
+        if (match >= 0) {
+          // There's a sentence ending near the end — flush now
+          flushAndRestart();
+        } else {
+          // No clean boundary — flush anyway
+          flushAndRestart();
+        }
+        return;
+      }
 
-    // Fire translation when interim is long enough
-    if (interim.length >= 10 && !isTranslating) {
-      clearTimeout(translateTimer);
-      translateTimer = setTimeout(function() {
-        if (isTranslating) return;
-        var text = $('interim-text').textContent.replace(/^"|"$/g, '').trim();
-        if (!text) return;
-        $('interim-text').textContent = '';
-        // Stop and restart recognition so next session begins clean
-        restartRecognition();
-        triggerTranslation(text);
-      }, 800);
-    }
-  };
+      // Normal case: wait for silence
+      silenceTimer = setTimeout(function() {
+        flushAndRestart();
+      }, SILENCE_MS);
+    };
 
-  rec.onerror = function(e) {
-    if (e.error === 'no-speech' || e.error === 'aborted') return;
-    if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
-  };
+    r.onerror = function(e) {
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
+    };
 
-  rec.onend = function() {
-    if (isListening) setTimeout(function() {
-      try { lastFinalIndex = -1; lastSentInterimLen = 0; rec.start(); } catch(ex) {}
-    }, 200);
-  };
+    r.onend = function() {
+      // Only auto-restart if we didn't deliberately stop it
+      if (isListening && !isTranslating) {
+        setTimeout(function() { if (isListening) { rec = buildRec(); try { rec.start(); } catch(ex) {} } }, 150);
+      }
+    };
 
+    return r;
+  }
+
+  isListening = true;
+  $('startBtn').textContent = '■ Stop';
+  $('startBtn').classList.add('active');
+  $('mic-indicator').classList.add('active');
+  setStatus('🎤 Listening…', 'listening');
+  bufferedText = '';
+
+  rec = buildRec();
   rec.start();
+}
+
+function flushAndRestart() {
+  // Stop current recognition, translate what we have, then restart clean
+  var text = bufferedText.trim();
+  bufferedText = '';
+  $('interim-text').textContent = '';
+  clearTimeout(silenceTimer);
+  silenceTimer = null;
+
+  if (rec) {
+    try { rec.onend = null; rec.stop(); } catch(e) {}
+    rec = null;
+  }
+
+  if (text && !isTranslating) {
+    triggerTranslation(text, function() {
+      // After translation completes, restart recognition
+      if (isListening) {
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        var r = new SR();
+        r.lang = 'ko-KR';
+        r.continuous = true;
+        r.interimResults = true;
+        r.onresult = rec ? rec.onresult : null;
+        rec = r;
+        // Re-attach by rebuilding — just restart listening
+        startListeningContinue();
+      }
+    });
+  } else if (isListening) {
+    startListeningContinue();
+  }
+}
+
+function startListeningContinue() {
+  // Restart recognition after a flush without resetting UI state
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR || !isListening) return;
+
+  function buildRec() {
+    var r = new SR();
+    r.lang = 'ko-KR';
+    r.continuous = true;
+    r.interimResults = true;
+
+    r.onresult = function(e) {
+      var full = '';
+      for (var i = 0; i < e.results.length; i++) {
+        full += e.results[i][0].transcript;
+      }
+      full = full.trim();
+      if (!full) return;
+
+      bufferedText = full;
+      $('interim-text').textContent = '"' + full + '"';
+
+      var dbg = $('debug-badge');
+      if (dbg) dbg.textContent = 'buf:' + full.length + 'ch | translating:' + isTranslating;
+
+      clearTimeout(silenceTimer);
+
+      if (full.length >= MAX_CHARS) {
+        flushAndRestart();
+        return;
+      }
+
+      silenceTimer = setTimeout(function() {
+        flushAndRestart();
+      }, SILENCE_MS);
+    };
+
+    r.onerror = function(e) {
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
+    };
+
+    r.onend = function() {
+      if (isListening && !isTranslating) {
+        setTimeout(function() { if (isListening) { rec = buildRec(); try { rec.start(); } catch(ex) {} } }, 150);
+      }
+    };
+
+    return r;
+  }
+
+  rec = buildRec();
+  try { rec.start(); } catch(e) {}
 }
 
 function stopListening() {
   isListening = false;
-  if (rec) { try { rec.stop(); } catch(e) {} rec = null; }
-  if (rollingTimer) { clearInterval(rollingTimer); rollingTimer = null; }
-  clearTimeout(translateTimer);
-  clearTimeout(lockTimer);
+  clearTimeout(silenceTimer);
+  clearTimeout(safetyTimer);
+  silenceTimer = null;
+  if (rec) { try { rec.onend = null; rec.stop(); } catch(e) {} rec = null; }
   $('startBtn').textContent = '▶ Start';
   $('startBtn').classList.remove('active');
   $('mic-indicator').classList.remove('active');
   $('interim-text').textContent = '';
-  lastRollingText = '';
+  bufferedText = '';
   setStatus('Stopped');
-}
-
-function resetLockTimer() {
-  clearTimeout(lockTimer);
-  lockTimer = setTimeout(function() {
-    if (currentStreamText.trim()) {
-      var lockedEl = lockStreamingLine(currentStreamText);
-      if (revisionWindow.length > 0) {
-        revisionWindow[revisionWindow.length - 1].en = currentStreamText.trim();
-        if (!revisionLineEl) revisionLineEl = lockedEl;
-      }
-      currentStreamText = '';
-    }
-    if (revisionWindow.length >= 2) reviseLastChunks();
-    else { revisionWindow = []; revisionLineEl = null; }
-  }, LOCK_SILENCE_MS);
 }
 
 // =============================================
 // STREAMING TRANSLATION
+// Now accepts optional onDone callback
 // =============================================
-function deStutter(text) {
-  var tokens = text.trim().split(/\s+/), out = [];
-  for (var i = 0; i < tokens.length; i++) {
-    if (i === 0 || tokens[i] !== tokens[i-1]) out.push(tokens[i]);
-  }
-  return out.join(' ');
-}
-
-async function triggerTranslation(text) {
-  if (isTranslating) return;
+async function triggerTranslation(text, onDone) {
+  if (isTranslating) { if (onDone) onDone(); return; }
   isTranslating = true;
-  var koChunk = deStutter(text);
-  pending = '';
   currentStreamText = '';
   setStatus('Translating…', 'translating');
   clearError();
 
-  // Hard safety reset — if translation takes >15s something is broken
+  // Safety reset
   var safetyTimeout = setTimeout(function() {
     if (isTranslating) {
-      console.warn('Safety timeout: forcing isTranslating reset');
       if (currentStreamText.trim()) {
-        var t = currentStreamText.trim();
-        currentStreamText = '';
-        revisionWindow.push({ ko: koChunk, en: t });
-        lockStreamingLine(t);
+        displayFinalLine(currentStreamText.trim());
+        historyLog.push({ en: currentStreamText.trim() });
+        if (historyLog.length > 6) historyLog.shift();
       }
       isTranslating = false;
       setStatus('🎤 Listening…', 'listening');
-      var dbg = $('debug-badge');
-      if (dbg) dbg.textContent = 'SAFETY RESET fired';
+      if (onDone) onDone();
     }
   }, 15000);
 
@@ -570,7 +569,7 @@ async function triggerTranslation(text) {
         model: 'claude-sonnet-4-5',
         max_tokens: 150,
         stream: true,
-        system: 'You are a live interpreter for a Christian worship service. Translate Korean into natural, reverent English. Korean often omits subjects — infer from context. Keep any English words as-is. The speaker may stutter or restart phrases — translate only the intended meaning. Respond with ONLY the English translation, no quotes or explanation.',
+        system: 'You are a live interpreter for a Christian worship service. Translate Korean into natural, reverent English. Korean often omits subjects — infer from context. Keep any English words as-is. The speaker may pause mid-sentence — translate the full meaning of what was said. Respond with ONLY the English translation, no quotes or explanation.',
         messages: [{ role: 'user', content: sermonLine + contextStr + 'Translate:\n' + text }]
       })
     });
@@ -580,6 +579,7 @@ async function triggerTranslation(text) {
       showError('API error: ' + (errData && errData.error ? errData.error.message : 'HTTP ' + res.status));
       isTranslating = false;
       clearTimeout(safetyTimeout);
+      if (onDone) onDone();
       return;
     }
 
@@ -606,52 +606,46 @@ async function triggerTranslation(text) {
           }
           if (parsed.type === 'message_stop') {
             clearTimeout(safetyTimeout);
-            var chunkText = currentStreamText.trim();
+            var final = currentStreamText.trim();
             currentStreamText = '';
-
-            revisionWindow.push({ ko: koChunk, en: chunkText });
-            var dbg = $('debug-badge');
-            if (dbg) dbg.textContent = 'window: ' + revisionWindow.length + ' chunks | lock in ' + (LOCK_SILENCE_MS/1000) + 's';
-
-            var lineEl = lockStreamingLine(chunkText);
-            if (!revisionLineEl) revisionLineEl = lineEl;
-
-            setStatus('🎤 Listening…', 'listening');
-            isTranslating = false;
-            if (pending.trim()) {
-              lastRollingText = pending.trim();
-              triggerTranslation(pending.trim());
+            setStreamingText('');
+            if (final) {
+              displayFinalLine(final);
+              historyLog.push({ en: final });
+              if (historyLog.length > 6) historyLog.shift();
             }
+            isTranslating = false;
+            setStatus('🎤 Listening…', 'listening');
+            var dbg = $('debug-badge');
+            if (dbg) dbg.textContent = 'done | history:' + historyLog.length;
+            if (onDone) onDone();
           }
         } catch(ex) {}
       }
     }
 
-    // Fallback if stream ends without message_stop
-    if (isTranslating && currentStreamText.trim()) {
+    // Fallback
+    if (isTranslating) {
       clearTimeout(safetyTimeout);
-      var chunkText2 = currentStreamText.trim();
+      var final2 = currentStreamText.trim();
       currentStreamText = '';
-      revisionWindow.push({ ko: koChunk, en: chunkText2 });
-      var lineEl2 = lockStreamingLine(chunkText2);
-      if (!revisionLineEl) revisionLineEl = lineEl2;
-      setStatus('🎤 Listening…', 'listening');
-      isTranslating = false;
-      if (pending.trim()) {
-        lastRollingText = pending.trim();
-        triggerTranslation(pending.trim());
+      setStreamingText('');
+      if (final2) {
+        displayFinalLine(final2);
+        historyLog.push({ en: final2 });
+        if (historyLog.length > 6) historyLog.shift();
       }
-    } else {
-      clearTimeout(safetyTimeout);
       isTranslating = false;
       setStatus('🎤 Listening…', 'listening');
+      if (onDone) onDone();
     }
 
   } catch(err) {
     clearTimeout(safetyTimeout);
-    if (err.name === 'AbortError') { isTranslating = false; return; }
+    if (err.name === 'AbortError') { isTranslating = false; if (onDone) onDone(); return; }
     showError('Network error: ' + err.message);
     isTranslating = false;
+    if (onDone) onDone();
   }
 }
 </script>
