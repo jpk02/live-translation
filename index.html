@@ -434,9 +434,17 @@ function startListening() {
     $('startBtn').classList.add('active');
     $('mic-indicator').classList.add('active');
     setStatus('🎤 Listening…', 'listening');
+
+    // Hard fallback: every 5 seconds, force a translation of whatever we have
     rollingTimer = setInterval(function() {
-      if (pending.trim() && !isTranslating) triggerTranslation(pending.trim());
-    }, 2500);
+      var interimEl = $('interim-text');
+      var interimText = interimEl ? interimEl.textContent.replace(/^"|"$/g, '').trim() : '';
+      var text = pending.trim() || interimText;
+      if (text && !isTranslating) {
+        pending = '';
+        triggerTranslation(text);
+      }
+    }, 3000);
   };
 
   rec.onresult = function(e) {
