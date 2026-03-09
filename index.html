@@ -75,6 +75,7 @@ var WORKER_URL = 'https://live-translation.pauljkim22.workers.dev';
 var SILENCE_MS = 4500;
 var MAX_CHARS  = 120;
 var MAX_LINES  = 5;
+var SHORT_LINE_CHARS = 60; // lines shorter than this get merged with the next
 
 var firebaseConfig = {
   apiKey: "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
@@ -158,7 +159,18 @@ function displayFinalLine(text, skipFirebase){
   $('placeholder').style.display = 'none';
   var linesEl = $('translation-lines');
 
-  // Slide in from below
+  // If the last line is short, merge this text into it instead of adding a new line
+  var lastLine = linesEl.lastChild;
+  if (lastLine && lastLine.classList.contains('tline') && lastLine.textContent.length < SHORT_LINE_CHARS) {
+    var merged = lastLine.textContent + ' ' + text;
+    lastLine.style.opacity = '0.4';
+    setTimeout(function(){ lastLine.textContent = merged; lastLine.style.opacity = '1'; }, 200);
+    if (!skipFirebase) translationsRef.push({ text: merged, timestamp: firebase.database.ServerValue.TIMESTAMP });
+    reclassLines();
+    return lastLine;
+  }
+
+  // Otherwise add as new line, slide in from below
   var div = document.createElement('div');
   div.className = 'tline newest';
   div.textContent = text;
