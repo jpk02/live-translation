@@ -372,7 +372,7 @@ async function reviseLastChunks() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 120,
         stream: false,
         system: 'You are a live interpreter for a Christian worship service. You are given Korean text spoken with pauses and a rough draft English translation. Produce ONE clean, natural, complete English sentence capturing the full meaning. Korean verbs come last — meaning often only becomes clear at the end. Speech recognition may mishear words — use context to infer correctly. Respond with ONLY the final English sentence, nothing else.',
@@ -564,7 +564,7 @@ async function triggerTranslation(text) {
       headers: { 'Content-Type': 'application/json' },
       signal: streamAbortCtrl.signal,
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 150,
         stream: true,
         system: 'You are a live interpreter for a Christian worship service. Translate Korean into natural, reverent English. Korean often omits subjects — infer from context. Keep any English words as-is. The speaker may stutter or restart phrases — translate only the intended meaning. Respond with ONLY the English translation, no quotes or explanation.',
