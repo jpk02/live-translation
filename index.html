@@ -446,7 +446,23 @@ function startListening() {
       if (e.results[i].isFinal) final += t;
       else interim += t;
     }
-    if (interim) $('interim-text').textContent = '"' + interim + '"';
+
+    if (interim) {
+      $('interim-text').textContent = '"' + interim + '"';
+      // If interim is long enough and nothing is translating, fire early
+      var combinedLen = (pending + ' ' + interim).trim().length;
+      if (combinedLen > 30 && !isTranslating) {
+        clearTimeout(translateTimer);
+        translateTimer = setTimeout(function() {
+          var text = (pending + ' ' + interim).trim();
+          if (text && !isTranslating) {
+            pending = '';
+            triggerTranslation(text);
+          }
+        }, 800);
+      }
+    }
+
     if (final) {
       $('interim-text').textContent = '';
       pending += ' ' + final.trim();
