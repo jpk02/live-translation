@@ -454,24 +454,21 @@ function startListening() {
     if (!interim) return;
     $('interim-text').textContent = '"' + interim + '"';
 
-    // New characters since last translation
-    var newLen = interim.length - lastSentInterimLen;
-
     var dbg = $('debug-badge');
-    if (dbg) dbg.textContent = 'total:' + interim.length + ' sent:' + lastSentInterimLen + ' new:' + newLen;
+    if (dbg) dbg.textContent = 'interim len:' + interim.length + ' translating:' + isTranslating;
 
-    // Fire when we have 10+ new characters and not currently translating
-    if (newLen >= 10 && !isTranslating) {
+    // Fire translation when interim is long enough
+    if (interim.length >= 10 && !isTranslating) {
       clearTimeout(translateTimer);
       translateTimer = setTimeout(function() {
         if (isTranslating) return;
-        // Send only the new portion (slice from where we left off)
-        var toSend = interim.slice(lastSentInterimLen).trim();
-        if (!toSend) return;
-        lastSentInterimLen = interim.length;
-        lastRollingText = interim;
-        triggerTranslation(toSend);
-      }, 600);
+        var text = $('interim-text').textContent.replace(/^"|"$/g, '').trim();
+        if (!text) return;
+        $('interim-text').textContent = '';
+        // Stop and restart recognition so next session begins clean
+        restartRecognition();
+        triggerTranslation(text);
+      }, 800);
     }
   };
 
