@@ -441,7 +441,7 @@ function startListening() {
       var interimText = interimEl ? interimEl.textContent.replace(/^"|"$/g, '').trim() : '';
       var text = pending.trim() || interimText;
       var dbg = $('debug-badge');
-      if (dbg) dbg.textContent = 'timer fired | pending:"' + pending.trim() + '" interim:"' + interimText.slice(0,20) + '" translating:' + isTranslating;
+    if (dbg) { dbg.style.display = 'block'; dbg.textContent = 'timer fired | pending:"' + pending.trim() + '" interim:"' + interimText.slice(0,20) + '" translating:' + isTranslating; }
       if (text && !isTranslating) {
         pending = '';
         triggerTranslation(text);
