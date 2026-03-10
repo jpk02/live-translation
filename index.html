@@ -138,6 +138,10 @@ var fullTranscript       = '';
 var cursor               = 0;
 var lastFirebaseKey      = null;
 var lastActivityTime     = 0;
+// Adaptive pace tracking
+var charsAtLastCommit    = 0;
+var timeAtLastCommit     = 0;
+var adaptiveCommitMs     = FORCE_COMMIT_MS;
 
 // ── UI HELPERS ───────────────────────────────────────────────────────────────
 function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
@@ -225,6 +229,9 @@ function startListening() {
   cursor = 0;
   translationQueue = [];
   lastActivityTime = Date.now();
+  charsAtLastCommit = 0;
+  timeAtLastCommit = 0;
+  adaptiveCommitMs = FORCE_COMMIT_MS;
   $('startBtn').textContent = '■ Stop';
   $('startBtn').classList.add('active');
   $('mic-indicator').classList.add('active');
@@ -253,8 +260,8 @@ function scheduleForceCommit() {
     if (!isListening) return;
     var unsent = fullTranscript.slice(cursor).trim();
     if (unsent) commitTranslation();
-    forceCommitTimer = setTimeout(forceNext, FORCE_COMMIT_MS);
-  }, FORCE_COMMIT_MS);
+    else forceCommitTimer = setTimeout(forceNext, adaptiveCommitMs);
+  }, adaptiveCommitMs);
 }
 
 function spawnRec() {
@@ -315,9 +322,30 @@ function commitTranslation() {
   silenceTimer = null;
   var unsent = fullTranscript.slice(cursor).trim();
   if (!unsent) return;
+
+  // Measure how fast the speaker is talking and adapt next commit window
+  var now = Date.now();
+  if (timeAtLastCommit > 0) {
+    var elapsed = now - timeAtLastCommit;
+    var charsProduced = fullTranscript.length - charsAtLastCommit;
+    // Target ~80 Korean chars per chunk for comfortable reading
+    // If speaker produces chars faster, shorten window; slower, lengthen it
+    var targetChars = 80;
+    if (charsProduced > 0 && elapsed > 0) {
+      var msPerChar = elapsed / charsProduced;
+      var newCommitMs = Math.round(msPerChar * targetChars);
+      adaptiveCommitMs = Math.min(MAX_COMMIT_MS, Math.max(MIN_COMMIT_MS,
+        adaptiveCommitMs * 0.6 + newCommitMs * 0.4  // smooth with 60/40 weighted average
+      ));
+      dbg('pace: ' + Math.round(msPerChar) + 'ms/char → commit: ' + Math.round(adaptiveCommitMs/1000) + 's');
+    }
+  }
+  timeAtLastCommit = now;
+  charsAtLastCommit = fullTranscript.length;
+
   cursor = fullTranscript.length;
   $('interim-text').textContent = '';
-  scheduleForceCommit(); // reset the force commit timer after each commit
+  scheduleForceCommit();
   enqueueTranslation(unsent);
 }
 
