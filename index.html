@@ -264,14 +264,27 @@ function spawnRec() {
     if (finalText) fullTranscript = finalText.trim();
 
     var unsent = fullTranscript.slice(cursor).trim();
+    var unsentInterim = (unsent + interimText).trim();
+
     $('interim-text').textContent = interimText
       ? '"' + interimText.trim() + '"'
       : (unsent ? '"' + unsent + '"' : '');
     dbg('final:' + fullTranscript.length + ' cursor:' + cursor + ' unsent:' + unsent.length + ' q:' + translationQueue.length);
 
-    if (!unsent) return;
+    if (!unsent && !interimText) return;
     clearTimeout(silenceTimer);
-    if (unsent.length >= MAX_CHARS) { commitTranslation(); return; }
+
+    // Use combined length to detect when enough has accumulated,
+    // but only actually commit once finals are available
+    if (unsentInterim.length >= MAX_CHARS) {
+      if (unsent.length >= MAX_CHARS) {
+        commitTranslation();
+      } else {
+        // Finals not caught up yet — use a short timer to wait for them
+        silenceTimer = setTimeout(commitTranslation, 800);
+      }
+      return;
+    }
     silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
   };
 
