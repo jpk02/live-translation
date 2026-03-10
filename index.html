@@ -67,7 +67,7 @@
 <script>
 var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
 var SILENCE_MS       = 4000;
-var MAX_CHARS        = 35;
+var MAX_CHARS        = 40;
 var MAX_LINES        = 5;
 var SHORT_LINE_CHARS = 60;
 
@@ -250,14 +250,7 @@ function spawnRec() {
     clearTimeout(silenceTimer);
 
     if (unsent.length >= MAX_CHARS) {
-      // Only force-commit at a natural Korean sentence boundary; otherwise wait for silence
-      var hasBoundary = /[.!?。，、；：\n]/.test(unsent);
-      if (hasBoundary) {
-        commitTranslation();
-      } else {
-        clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
-      }
+      commitTranslation();
       return;
     }
     silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
