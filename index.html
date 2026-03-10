@@ -374,7 +374,7 @@ async function triggerTranslation(text) {
     isTranslating = false;
     setStatus('🎤 Listening…', 'listening');
     processQueue();
-  }, 15000);
+  }, 30000);
 
   var manualTopic = $('sermonContext').value.trim();
   var topicLine   = manualTopic ? 'Sermon topic: ' + manualTopic + '\n\n' : '';
