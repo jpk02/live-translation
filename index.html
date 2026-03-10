@@ -241,22 +241,29 @@ function spawnRec(){
   rec.interimResults = true;
 
   rec.onresult = function(e){
-    var full = '';
-    for (var i = 0; i < e.results.length; i++) full += e.results[i][0].transcript;
-    full = full.trim();
-    fullTranscript = full;
+    var finalText = '';
+    var interimText = '';
+    for (var i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+      else interimText += e.results[i][0].transcript;
+    }
 
-    var unsent = full.slice(cursor).trim();
-    $('interim-text').textContent = unsent ? '"' + unsent + '"' : '';
-    dbg('total:' + full.length + ' cursor:' + cursor + ' unsent:' + unsent.length + ' q:' + translationQueue.length);
+    // Update the committed final transcript
+    if (finalText) fullTranscript = finalText.trim();
+
+    var unsent = fullTranscript.slice(cursor).trim();
+    $('interim-text').textContent = interimText ? '"' + interimText.trim() + '"' : (unsent ? '"' + unsent + '"' : '');
+    dbg('final:' + fullTranscript.length + ' cursor:' + cursor + ' unsent:' + unsent.length + ' q:' + translationQueue.length);
 
     if (!unsent) return;
     clearTimeout(silenceTimer);
 
+    // Commit immediately on a long chunk
     if (unsent.length >= MAX_CHARS){
       commitTranslation();
       return;
     }
+    // Otherwise wait for silence — by then the recognizer will have finalized its results
     silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
   };
 
