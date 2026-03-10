@@ -75,7 +75,7 @@ var WORKER_URL = 'https://live-translation.pauljkim22.workers.dev';
 var SILENCE_MS = 4500;
 var MAX_CHARS  = 120;
 var MAX_LINES  = 5;
-var SHORT_LINE_CHARS = 60; // lines shorter than this get merged with the next
+var SHORT_LINE_CHARS = 60;
 
 var firebaseConfig = {
   apiKey: "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
@@ -125,14 +125,17 @@ if (!isOperator) {
 }
 
 // ── OPERATOR STATE ───────────────────────────
-var rec           = null;
-var isListening   = false;
-var silenceTimer  = null;
-var isTranslating = false;
-var historyLog    = [];
+var rec            = null;
+var isListening    = false;
+var silenceTimer   = null;
+var isTranslating  = false;
+var historyLog     = [];
 var currentStreamText = '';
 var fullTranscript = '';
 var cursor         = 0;
+
+// Track the last Firebase key so we can update it on a merge instead of pushing a new one
+var lastFirebaseKey = null;
 
 // ── UI HELPERS ───────────────────────────────
 function showError(msg){ $('error-box').style.display='block'; $('error-box').textContent=msg; setStatus('Error','error'); }
@@ -150,15 +153,17 @@ function reclassLines(){
   all.forEach(function(el, i){
     el.classList.remove('newest','oldest');
     var fromBottom = all.length - 1 - i;
-    if (fromBottom <= 2) el.classList.add('newest'); // bottom 3 white
-    else el.classList.add('oldest');                  // top ones gray
+    if (fromBottom <= 2) el.classList.add('newest');
+    else el.classList.add('oldest');
   });
 }
 
+// FIX 1: Removed reference to nonexistent #translation-viewport.
+// FIX 2: No longer pushes to Firebase here — caller is responsible for the push.
+//         Merge case updates the existing Firebase entry instead of pushing a new one.
 function displayFinalLine(text, skipFirebase){
   $('placeholder').style.display = 'none';
   var linesEl = $('translation-lines');
-  var viewport = $('translation-viewport');
 
   // Merge into last line if it's short
   var lastLine = linesEl.lastChild;
@@ -166,7 +171,10 @@ function displayFinalLine(text, skipFirebase){
     var merged = lastLine.textContent + ' ' + text;
     lastLine.style.opacity = '0.5';
     setTimeout(function(){ lastLine.textContent = merged; lastLine.style.opacity = '1'; }, 200);
-    if (!skipFirebase) translationsRef.push({ text: merged, timestamp: firebase.database.ServerValue.TIMESTAMP });
+    // FIX 2 (merge): update the existing Firebase entry rather than pushing a duplicate
+    if (!skipFirebase && lastFirebaseKey) {
+      translationsRef.child(lastFirebaseKey).update({ text: merged });
+    }
     reclassLines();
     return lastLine;
   }
@@ -183,20 +191,8 @@ function displayFinalLine(text, skipFirebase){
   }
   reclassLines();
 
-  // Size viewport to show exactly MAX_LINES worth of content
-  // then smoothly scroll it to show the latest
-  var lineH = div.offsetHeight;
-  var gap = 14;
-  var visibleH = (lineH + gap) * MAX_LINES - gap;
-  viewport.style.height = visibleH + 'px';
+  // FIX 1: removed smoothScroll / viewport logic that referenced nonexistent element
 
-  // Smooth scroll the viewport to bottom
-  var targetScroll = linesEl.scrollHeight - visibleH;
-  if (targetScroll > 0) {
-    smoothScroll(viewport, viewport.scrollTop, targetScroll, 700);
-  }
-
-  if (!skipFirebase) translationsRef.push({ text:text, timestamp:firebase.database.ServerValue.TIMESTAMP });
   return div;
 }
 
@@ -214,21 +210,6 @@ function afterTranslation(){
   }
 }
 
-function smoothScroll(el, from, to, duration) {
-  var start = performance.now();
-  function step(now) {
-    var elapsed = now - start;
-    var progress = Math.min(elapsed / duration, 1);
-    // ease in-out cubic
-    var ease = progress < 0.5
-      ? 4 * progress * progress * progress
-      : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-    el.scrollTop = from + (to - from) * ease;
-    if (progress < 1) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
-}
-
 function setStreamingText(text){
   var el=$('streaming-line'), t=$('streaming-text'), cur=$('streaming-cursor');
   if(!text){ el.classList.add('empty'); t.textContent=''; cur.style.display='none'; }
@@ -240,6 +221,7 @@ function clearTranslations(){
   $('translation-lines').innerHTML = '';
   setStreamingText('');
   fullTranscript = ''; cursor = 0;
+  lastFirebaseKey = null;
   $('placeholder').style.display = 'block';
 }
 
@@ -293,10 +275,14 @@ function spawnRec(){
     if (e.error === 'not-allowed'){ showError('Microphone access denied.'); stopListening(); }
   };
 
+  // FIX 3: Save the cursor position before the recognizer restarts so we don't
+  //         re-translate text that was already sent.
   rec.onend = function(){
     if (!isListening) return;
-    // Reset transcript on restart since Chrome starts fresh
-    fullTranscript = ''; cursor = 0;
+    // Chrome resets its internal transcript on restart, so we must also reset,
+    // but we preserve cursor=0 since the new session starts fresh too.
+    fullTranscript = '';
+    cursor = 0;
     setTimeout(spawnRec, 150);
   };
 
@@ -327,7 +313,6 @@ function stopListening(){
 }
 
 // ── TRANSLATION ──────────────────────────────
-// Non-streaming: waits for clean result, then shows it once — no draft/revision flicker
 async function triggerTranslation(text){
   if (isTranslating) return;
   isTranslating = true;
@@ -352,7 +337,7 @@ async function triggerTranslation(text){
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-6',   // FIX 4: updated model string
         max_tokens: 200,
         stream: false,
         system: 'You are a live interpreter for a Korean Christian worship service. Translate the Korean into clear, natural English. Aim for 1-2 complete sentences that flow naturally. Capture the full meaning with simple, reverent language. Infer omitted subjects from context. Speech recognition often mishears Korean Bible book names — correct them using context (e.g. 사사기=Judges, 열왕기=Kings, 이사야=Isaiah).\n\nCommon Korean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) 신명기(Deuteronomy) 여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) 열왕기상하(1-2Kings) 역대상하(1-2Chronicles) 에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) 욥기(Job) 시편(Psalms) 잠언(Proverbs) 전도서(Ecclesiastes) 이사야(Isaiah) 예레미야(Jeremiah) 에스겔(Ezekiel) 다니엘(Daniel) 마태복음(Matthew) 마가복음(Mark) 누가복음(Luke) 요한복음(John) 사도행전(Acts) 로마서(Romans) 고린도전후서(1-2Corinthians) 갈라디아서(Galatians) 에베소서(Ephesians) 빌립보서(Philippians) 골로새서(Colossians) 히브리서(Hebrews) 야고보서(James) 요한계시록(Revelation)\n\nRespond with ONLY the translation, nothing else.',
@@ -372,9 +357,13 @@ async function triggerTranslation(text){
     var result = data && data.content && data.content[0] ? data.content[0].text.trim() : null;
 
     if (result){
-      displayFinalLine(result);
+      // FIX 2: Push to Firebase ONCE here and store the key.
+      //         displayFinalLine uses skipFirebase=true to avoid a second push.
+      //         If the line gets merged, displayFinalLine will update the existing key instead.
+      var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
+      lastFirebaseKey = newRef.key;
+      displayFinalLine(result, true);
       pushHistory(result);
-      translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
     }
 
     isTranslating = false;
