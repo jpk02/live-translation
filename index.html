@@ -66,8 +66,8 @@
 
 <script>
 var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
-var SILENCE_MS       = 6000;
-var MAX_CHARS        = 60;
+var SILENCE_MS       = 3500;
+var MAX_CHARS        = 80;
 var MAX_LINES        = 5;
 var SHORT_LINE_CHARS = 60;
 
@@ -330,11 +330,12 @@ async function triggerTranslation(text) {
     : '';
 
   var systemPrompt = 'You are a live interpreter for a Korean Christian worship service. '
-    + 'Translate ONLY what was said — do not add, infer, expand, or complete the speaker\'s thought. '
-    + 'If only one word or a short phrase was said, translate just that word or phrase. '
+    + 'Translate ONLY what was said — do not add, infer, or expand beyond what was spoken. '
+    + 'You may render the translation naturally and fluently, but never omit or skip entire sentences or thoughts. '
+    + 'Every complete idea the speaker expressed must appear in the translation. '
     + 'Preserve the full meaning, tone, and theological weight of what was said. '
     + 'Use standard English Bible vocabulary for theological terms (e.g. grace, redemption, sanctification, covenant). '
-    + 'Infer omitted grammatical subjects from context only when Korean grammar requires it, but never add content beyond what was spoken. '
+    + 'Infer omitted grammatical subjects only when Korean grammar requires it, but never add content beyond what was spoken. '
     + 'Speech recognition often mishears Korean Bible book names — correct them using context (e.g. 사사기=Judges, 열왕기=Kings, 이사야=Isaiah).\n\n'
     + 'IMPORTANT: Never output "..." or any placeholder. Always translate what was said, even if it is a filler word, '
     + 'repeated phrase, or transitional expression (e.g. 아/음/그/네 → "Yes" or "And" or omit gracefully). '
