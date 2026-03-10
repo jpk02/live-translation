@@ -330,7 +330,7 @@ function commitTranslation() {
     var charsProduced = fullTranscript.length - charsAtLastCommit;
     // Target ~80 Korean chars per chunk for comfortable reading
     // If speaker produces chars faster, shorten window; slower, lengthen it
-    var targetChars = 150;
+    var targetChars = 100;
     if (charsProduced > 0 && elapsed > 0) {
       var msPerChar = elapsed / charsProduced;
       var newCommitMs = Math.round(msPerChar * targetChars);
