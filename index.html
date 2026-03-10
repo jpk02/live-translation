@@ -296,10 +296,14 @@ function spawnRec() {
   rec.onend = function () {
     lastActivityTime = Date.now();
     if (!isListening) return;
-    // Flush any unsent text before the recognizer resets
+    // Flush any unsent finalized text before resetting
     var unsent = fullTranscript.slice(cursor).trim();
-    if (unsent) { cursor = fullTranscript.length; enqueueTranslation(unsent); }
-    fullTranscript = ''; cursor = 0;
+    if (unsent) enqueueTranslation(unsent);
+    // Reset after flush — Chrome starts a fresh transcript on restart
+    fullTranscript = '';
+    cursor = 0;
+    clearTimeout(silenceTimer); silenceTimer = null;
+    clearTimeout(forceCommitTimer); forceCommitTimer = null;
     setTimeout(spawnRec, 150);
   };
 
@@ -318,7 +322,9 @@ function commitTranslation() {
 }
 
 function enqueueTranslation(text) {
+  if (!text || text.trim().length < 2) return; // ignore empty/tiny chunks
   translationQueue.push(text);
+  dbg('queued | q:' + translationQueue.length);
   processQueue();
 }
 
