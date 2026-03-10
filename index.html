@@ -21,40 +21,27 @@
   #status.error { color: #e74c3c; }
   #error-box { display: none; background: #1a0000; border: 1px solid #500; border-radius: 8px; padding: 10px 16px; font-size: 12px; color: #ff6b6b; margin: 6px 20px; font-family: monospace; word-break: break-all; flex-shrink: 0; }
 
-  #display { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 24px 40px 36px; position: relative; overflow: hidden; }
+  #display { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 24px 40px; position: relative; overflow: hidden; }
   #placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: #2a2a2a; pointer-events: none; }
   #placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
 
   #translation-box { width: 100%; max-width: 1200px; text-align: center; }
 
-  /* The viewport masks everything outside MAX_LINES worth of height */
-  #translation-viewport {
-    overflow: hidden;
-    position: relative;
-  }
+  /* Viewport clips the scrolling lines — overflow hidden is essential */
+  #translation-viewport { overflow: hidden; position: relative; }
 
-  /* Lines live here; we slide this container up via transform */
-  #translation-lines {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    /* transition applied in JS after first line exists */
-  }
+  /* Lines stack naturally inside — no transitions on the container itself */
+  #translation-lines { display: flex; flex-direction: column; gap: 14px; }
 
   .tline {
     font-size: clamp(18px, 2.5vw, 36px);
     line-height: 1.4;
     text-shadow: 0 2px 20px rgba(0,0,0,0.8);
     flex-shrink: 0;
-    /* new lines slide+fade in */
-    opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.5s ease, transform 0.5s ease, color 0.8s ease;
+    transition: color 0.6s, opacity 0.6s;
   }
-  .tline.visible  { opacity: 1; transform: translateY(0); }
-  .tline.newest   { color: #ffffff; }
-  .tline.mid      { color: #aaaaaa; }
-  .tline.oldest   { color: #555555; }
+  .tline.newest { color: #ffffff; }
+  .tline.oldest { color: #555555; }
 
   #interim-text { font-size: clamp(11px,1.2vw,16px); color: #333; margin-top: 12px; font-style: italic; min-height: 1.2em; font-family: sans-serif; }
   #debug-badge { position: fixed; bottom: 24px; left: 20px; font-size: 11px; font-family: monospace; color: #555; background: #111; padding: 4px 8px; border-radius: 4px; border: 1px solid #222; pointer-events: none; }
@@ -89,10 +76,10 @@
 
 <script>
 var WORKER_URL  = 'https://live-translation.pauljkim22.workers.dev';
-var SILENCE_MS  = 1500;   // 1.5s silence — faster commits
-var MAX_CHARS   = 35;     // smaller chunks — more frequent lines
+var SILENCE_MS  = 2500;   // 2.5s silence before translating
+var MAX_CHARS   = 60;     // hard cap — shorter chunks
 var MAX_LINES   = 5;
-var LINE_GAP    = 14;     // must match CSS gap
+var SHORT_LINE_CHARS = 60;
 
 var firebaseConfig = {
   apiKey: "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
@@ -109,68 +96,13 @@ var translationsRef = db.ref('translations');
 var isOperator = window.location.search.includes('operator');
 function $(id){ return document.getElementById(id); }
 
-// ── VIEWPORT SIZING ──────────────────────────
-// We keep the viewport exactly tall enough for MAX_LINES.
-// The translation-lines div can be taller; it's clipped.
-// We shift translation-lines upward with translateY so the
-// newest lines are always at the bottom of the viewport.
-
-var lineHeightCache = 0;
-
-function getLineH() {
-  // measure from an existing line, or estimate
-  var lines = $('translation-lines').querySelectorAll('.tline');
-  if (lines.length > 0) {
-    lineHeightCache = lines[0].offsetHeight;
-  }
-  return lineHeightCache || Math.round(clamp(18, 2.5 * window.innerWidth / 100, 36) * 1.4);
-}
-
-function clamp(min, val, max) { return Math.min(Math.max(val, min), max); }
-
-function recomputeViewport() {
-  var lineH = getLineH();
-  var visH  = lineH * MAX_LINES + LINE_GAP * (MAX_LINES - 1);
-  $('translation-viewport').style.height = visH + 'px';
-  repositionLines();
-}
-
-function repositionLines(animate) {
-  var linesEl  = $('translation-lines');
-  var lineH    = getLineH();
-  var total    = linesEl.children.length;
-  // total content height
-  var contentH = total * lineH + Math.max(0, total - 1) * LINE_GAP;
-  var visH     = lineH * MAX_LINES + LINE_GAP * (MAX_LINES - 1);
-  // shift up so bottom of content aligns with bottom of viewport
-  var shift    = Math.max(0, contentH - visH);
-
-  if (animate) {
-    linesEl.style.transition = 'transform 0.55s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
-  } else {
-    linesEl.style.transition = 'none';
-  }
-  linesEl.style.transform = 'translateY(-' + shift + 'px)';
-}
-
-function reclassLines() {
-  var all = $('translation-lines').querySelectorAll('.tline');
-  all.forEach(function(el, i) {
-    el.classList.remove('newest', 'mid', 'oldest');
-    var fromBottom = all.length - 1 - i;
-    if (fromBottom === 0)      el.classList.add('newest');
-    else if (fromBottom <= 2)  el.classList.add('mid');
-    else                       el.classList.add('oldest');
-  });
-}
-
 // ── VIEWER ──────────────────────────────────
 if (!isOperator) {
   document.addEventListener('DOMContentLoaded', function() {
-    $('controls').style.display   = 'none';
-    $('error-box').style.display  = 'none';
+    $('controls').style.display = 'none';
+    $('error-box').style.display = 'none';
     $('interim-text').style.display = 'none';
-    $('debug-badge').style.display  = 'none';
+    $('debug-badge').style.display = 'none';
     var seenKeys = new Set();
     translationsRef.limitToLast(10).once('value', function(snap) {
       snap.forEach(function(child) {
@@ -188,7 +120,6 @@ if (!isOperator) {
     translationsRef.on('value', function(snap) {
       if (!snap.val()) {
         $('translation-lines').innerHTML = '';
-        $('translation-viewport').style.height = '';
         $('placeholder').style.display = 'block';
         seenKeys.clear();
       }
@@ -216,49 +147,71 @@ function toggleFullscreen(){
   else { document.exitFullscreen(); $('controls').style.display='flex'; }
 }
 
-// ── DISPLAY LINE ─────────────────────────────
+function reclassLines(){
+  var all = $('translation-lines').querySelectorAll('.tline');
+  all.forEach(function(el, i){
+    el.classList.remove('newest','oldest');
+    var fromBottom = all.length - 1 - i;
+    if (fromBottom <= 2) el.classList.add('newest');
+    else el.classList.add('oldest');
+  });
+}
+
+// Smooth scroll using requestAnimationFrame with ease-in-out cubic
+function smoothScrollTo(el, target, duration) {
+  var start = el.scrollTop;
+  var delta = target - start;
+  if (Math.abs(delta) < 1) return;
+  var startTime = null;
+  function step(now) {
+    if (!startTime) startTime = now;
+    var elapsed = now - startTime;
+    var progress = Math.min(elapsed / duration, 1);
+    var ease = progress < 0.5
+      ? 4 * progress * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+    el.scrollTop = start + delta * ease;
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
 function displayFinalLine(text, skipFirebase) {
   $('placeholder').style.display = 'none';
-  var linesEl = $('translation-lines');
+  var linesEl   = $('translation-lines');
+  var viewport  = $('translation-viewport');
 
-  // create line (starts invisible, slides in)
+  // Add new line
   var div = document.createElement('div');
-  div.className = 'tline';
+  div.className = 'tline newest';
   div.textContent = text;
   linesEl.appendChild(div);
 
-  // prune old lines beyond MAX_LINES
+  // Remove oldest beyond MAX_LINES
   while (linesEl.children.length > MAX_LINES) {
     linesEl.removeChild(linesEl.firstChild);
   }
-
   reclassLines();
 
-  // size viewport once we have a line height to measure
-  recomputeViewport();
+  // Size the viewport to exactly fit MAX_LINES
+  // We do this every time in case font size changed
+  var lineH = div.offsetHeight;
+  var gap   = 14;
+  var visH  = lineH * MAX_LINES + gap * (MAX_LINES - 1);
+  viewport.style.height = visH + 'px';
 
-  // slide the container up smoothly
-  repositionLines(true);
+  // Smooth scroll to bottom
+  smoothScrollTo(viewport, linesEl.scrollHeight, 700);
 
-  // trigger slide-in of the new line on next frame
-  requestAnimationFrame(function() {
-    requestAnimationFrame(function() {
-      div.classList.add('visible');
-    });
-  });
-
-  if (!skipFirebase) {
-    translationsRef.push({ text: text, timestamp: firebase.database.ServerValue.TIMESTAMP });
-  }
+  if (!skipFirebase) translationsRef.push({ text: text, timestamp: firebase.database.ServerValue.TIMESTAMP });
+  return div;
 }
 
 function clearTranslations(){
   translationsRef.remove();
   $('translation-lines').innerHTML = '';
-  $('translation-lines').style.transform = '';
   $('translation-viewport').style.height = '';
   fullTranscript = ''; cursor = 0;
-  lineHeightCache = 0;
   $('placeholder').style.display = 'block';
 }
 
@@ -337,6 +290,7 @@ function stopListening(){
 }
 
 // ── TRANSLATION ──────────────────────────────
+// Non-streaming: waits for complete result, shows it once, never changes it
 async function triggerTranslation(text){
   if (isTranslating) return;
   isTranslating = true;
@@ -364,7 +318,7 @@ async function triggerTranslation(text){
         model: 'claude-sonnet-4-5',
         max_tokens: 200,
         stream: false,
-        system: 'You are a live interpreter for a Korean Christian worship service. Translate the Korean into clear, natural English. Aim for 1-2 short sentences. Keep output concise — this is displayed live on screen. Capture the full meaning with simple, reverent language. Infer omitted subjects from context.\n\nSpeech recognition often mishears Korean Bible book names — correct them using context.\nKorean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) 신명기(Deuteronomy) 여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) 열왕기상하(1-2Kings) 역대상하(1-2Chronicles) 에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) 욥기(Job) 시편(Psalms) 잠언(Proverbs) 전도서(Ecclesiastes) 이사야(Isaiah) 예레미야(Jeremiah) 에스겔(Ezekiel) 다니엘(Daniel) 호세아(Hosea) 요엘(Joel) 아모스(Amos) 요나(Jonah) 미가(Micah) 말라기(Malachi) 마태복음(Matthew) 마가복음(Mark) 누가복음(Luke) 요한복음(John) 사도행전(Acts) 로마서(Romans) 고린도전후서(1-2Corinthians) 갈라디아서(Galatians) 에베소서(Ephesians) 빌립보서(Philippians) 골로새서(Colossians) 히브리서(Hebrews) 야고보서(James) 베드로전후서(1-2Peter) 요한계시록(Revelation)\n\nRespond with ONLY the translation, nothing else.',
+        system: 'You are a live interpreter for a Korean Christian worship service. Translate the Korean into clear, natural English. Aim for 1-2 complete sentences that flow naturally. Capture the full meaning with simple, reverent language. Infer omitted subjects from context.\n\nSpeech recognition often mishears Korean Bible book names — correct them using context.\nKorean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) 신명기(Deuteronomy) 여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) 열왕기상하(1-2Kings) 역대상하(1-2Chronicles) 에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) 욥기(Job) 시편(Psalms) 잠언(Proverbs) 전도서(Ecclesiastes) 이사야(Isaiah) 예레미야(Jeremiah) 에스겔(Ezekiel) 다니엘(Daniel) 호세아(Hosea) 요엘(Joel) 아모스(Amos) 요나(Jonah) 미가(Micah) 말라기(Malachi) 마태복음(Matthew) 마가복음(Mark) 누가복음(Luke) 요한복음(John) 사도행전(Acts) 로마서(Romans) 고린도전후서(1-2Corinthians) 갈라디아서(Galatians) 에베소서(Ephesians) 빌립보서(Philippians) 골로새서(Colossians) 히브리서(Hebrews) 야고보서(James) 베드로전후서(1-2Peter) 요한계시록(Revelation)\n\nRespond with ONLY the translation, nothing else.',
         messages: [{ role: 'user', content: sermonLine + contextStr + 'Translate:\n' + text }]
       })
     });
@@ -407,11 +361,6 @@ function afterTranslation(){
     triggerTranslation(unsent);
   }
 }
-
-window.addEventListener('resize', function() {
-  lineHeightCache = 0;
-  recomputeViewport();
-});
 </script>
 </body>
 </html>
