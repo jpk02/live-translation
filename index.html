@@ -444,16 +444,18 @@ async function triggerTranslation(text) {
     if (result && /^[\s.…]+$/.test(result)) result = null;
     if (result && /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(result)) result = null;
 
-    // Trim to last complete sentence — remove trailing dash or incomplete fragment
+    // Trim to last complete sentence — never end on a comma, dash, or incomplete fragment
     if (result) {
       var lastStop = Math.max(
         result.lastIndexOf('.'),
         result.lastIndexOf('!'),
         result.lastIndexOf('?')
       );
-      if (lastStop > result.length * 0.4) {
-        // Only trim if the sentence boundary is at least 40% through — avoids cutting too short
+      if (lastStop > 0 && lastStop > result.length * 0.3) {
         result = result.slice(0, lastStop + 1).trim();
+      } else {
+        // No sentence boundary found — strip trailing punctuation like commas and dashes
+        result = result.replace(/[\s,\-–—]+$/, '').trim();
       }
     }
 
