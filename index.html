@@ -66,8 +66,8 @@
 
 <script>
 var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
-var SILENCE_MS       = 2800;
-var MAX_CHARS        = 65;
+var SILENCE_MS       = 3200;
+var MAX_CHARS        = 50;
 var MAX_LINES        = 5;
 var SHORT_LINE_CHARS = 60;
 
@@ -250,7 +250,14 @@ function spawnRec() {
     clearTimeout(silenceTimer);
 
     if (unsent.length >= MAX_CHARS) {
-      commitTranslation();
+      // Only force-commit at a natural Korean sentence boundary; otherwise wait for silence
+      var hasBoundary = /[.!?。，、；：\n]/.test(unsent);
+      if (hasBoundary) {
+        commitTranslation();
+      } else {
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
+      }
       return;
     }
     silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
@@ -331,6 +338,7 @@ async function triggerTranslation(text) {
 
   var systemPrompt = 'You are a live interpreter for a Korean Christian worship service. '
     + 'Translate ONLY what was said — do not add, infer, or expand beyond what was spoken. '
+    + 'End your translation at a natural sentence or clause boundary — never mid-thought. '
     + 'You may render the translation naturally and fluently, but never omit or skip entire sentences or thoughts. '
     + 'Every complete idea the speaker expressed must appear in the translation. '
     + 'Preserve the full meaning, tone, and theological weight of what was said. '
