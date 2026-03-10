@@ -25,13 +25,7 @@
   #placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
   #translation-box { width: 100%; max-width: 1200px; text-align: center; }
   #translation-lines { display: flex; flex-direction: column; gap: 14px; margin-bottom: 12px; }
-  .tline {
-    font-size: clamp(18px, 2.5vw, 36px);
-    line-height: 1.4;
-    text-shadow: 0 2px 20px rgba(0,0,0,0.8);
-    overflow: hidden;
-    transition: color 0.8s, opacity 0.8s, transform 0.8s ease, max-height 0.8s ease, margin 0.8s ease;
-  }
+  .tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); overflow: hidden; transition: color 0.8s, opacity 0.8s; }
   .tline.newest { color: #ffffff; }
   .tline.oldest { color: #555555; }
   #streaming-line { font-size: clamp(18px,2.5vw,36px); line-height: 1.4; color: #aaaaaa; text-shadow: 0 2px 20px rgba(0,0,0,0.8); min-height: 1.4em; transition: opacity 0.3s; }
@@ -71,10 +65,10 @@
 <div id="debug-badge">ready</div>
 
 <script>
-var WORKER_URL = 'https://live-translation.pauljkim22.workers.dev';
-var SILENCE_MS = 6000;
-var MAX_CHARS  = 60;
-var MAX_LINES  = 5;
+var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
+var SILENCE_MS       = 6000;
+var MAX_CHARS        = 60;
+var MAX_LINES        = 5;
 var SHORT_LINE_CHARS = 60;
 
 var firebaseConfig = {
@@ -90,31 +84,32 @@ firebase.initializeApp(firebaseConfig);
 var db = firebase.database();
 var translationsRef = db.ref('translations');
 var isOperator = window.location.search.includes('operator');
-function $(id){ return document.getElementById(id); }
 
-// ── VIEWER ──────────────────────────────────
+function $(id) { return document.getElementById(id); }
+
+// ── VIEWER ───────────────────────────────────────────────────────────────────
 if (!isOperator) {
-  document.addEventListener('DOMContentLoaded', function() {
+  document.addEventListener('DOMContentLoaded', function () {
     $('controls').style.display = 'none';
     $('error-box').style.display = 'none';
     $('streaming-line').style.display = 'none';
     $('interim-text').style.display = 'none';
     $('debug-badge').style.display = 'none';
     var seenKeys = new Set();
-    translationsRef.limitToLast(10).once('value', function(snap) {
-      snap.forEach(function(child) {
+    translationsRef.limitToLast(10).once('value', function (snap) {
+      snap.forEach(function (child) {
         seenKeys.add(child.key);
         var it = child.val();
         if (it && it.text) displayFinalLine(it.text, true);
       });
-      translationsRef.on('child_added', function(snap) {
+      translationsRef.on('child_added', function (snap) {
         if (seenKeys.has(snap.key)) return;
         seenKeys.add(snap.key);
         var it = snap.val();
         if (it && it.text) displayFinalLine(it.text, true);
       });
     });
-    translationsRef.on('value', function(snap) {
+    translationsRef.on('value', function (snap) {
       if (!snap.val()) {
         $('translation-lines').innerHTML = '';
         $('placeholder').style.display = 'block';
@@ -124,40 +119,39 @@ if (!isOperator) {
   });
 }
 
-// ── OPERATOR STATE ───────────────────────────
+// ── OPERATOR STATE ───────────────────────────────────────────────────────────
 var rec              = null;
 var isListening      = false;
 var silenceTimer     = null;
 var isTranslating    = false;
-var translationQueue = [];   // chunks waiting to translate while one is in flight
+var translationQueue = [];
 var historyLog       = [];
-var currentStreamText = '';
 var fullTranscript   = '';
 var cursor           = 0;
 var lastFirebaseKey  = null;
 
-// ── UI HELPERS ───────────────────────────────
-function showError(msg){ $('error-box').style.display='block'; $('error-box').textContent=msg; setStatus('Error','error'); }
-function clearError()  { $('error-box').style.display='none'; }
-function setStatus(msg,cls){ $('status').textContent=msg; $('status').className=cls||''; }
-function dbg(msg){ var el=$('debug-badge'); if(el) el.textContent=msg; }
+// ── UI HELPERS ───────────────────────────────────────────────────────────────
+function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
+function clearError()   { $('error-box').style.display = 'none'; }
+function setStatus(msg, cls) { $('status').textContent = msg; $('status').className = cls || ''; }
+function dbg(msg) { var el = $('debug-badge'); if (el) el.textContent = msg; }
 
-function toggleFullscreen(){
-  if (!document.fullscreenElement){ document.documentElement.requestFullscreen(); $('controls').style.display='none'; }
-  else { document.exitFullscreen(); $('controls').style.display='flex'; }
+function toggleFullscreen() {
+  if (!document.fullscreenElement) { document.documentElement.requestFullscreen(); $('controls').style.display = 'none'; }
+  else { document.exitFullscreen(); $('controls').style.display = 'flex'; }
 }
 
-function reclassLines(){
+function reclassLines() {
   var all = $('translation-lines').querySelectorAll('.tline');
-  all.forEach(function(el, i){
-    el.classList.remove('newest','oldest');
+  all.forEach(function (el, i) {
+    el.classList.remove('newest', 'oldest');
     var fromBottom = all.length - 1 - i;
     if (fromBottom <= 2) el.classList.add('newest');
     else el.classList.add('oldest');
   });
 }
 
-function displayFinalLine(text, skipFirebase){
+function displayFinalLine(text, skipFirebase) {
   $('placeholder').style.display = 'none';
   var linesEl = $('translation-lines');
 
@@ -166,12 +160,11 @@ function displayFinalLine(text, skipFirebase){
   if (lastLine && lastLine.classList.contains('tline') && lastLine.textContent.length < SHORT_LINE_CHARS) {
     var merged = lastLine.textContent + ' ' + text;
     lastLine.style.opacity = '0.5';
-    setTimeout(function(){
+    setTimeout(function () {
       if (!lastLine || !lastLine.parentNode) return;
       lastLine.textContent = merged;
       lastLine.style.opacity = '1';
     }, 200);
-    // Update the existing Firebase entry instead of pushing a duplicate
     if (!skipFirebase && lastFirebaseKey) {
       translationsRef.child(lastFirebaseKey).update({ text: merged });
     }
@@ -179,13 +172,12 @@ function displayFinalLine(text, skipFirebase){
     return lastLine;
   }
 
-  // Add new line at bottom
+  // Add new line
   var div = document.createElement('div');
   div.className = 'tline newest';
   div.textContent = text;
   linesEl.appendChild(div);
 
-  // Remove oldest lines beyond MAX_LINES
   while (linesEl.children.length > MAX_LINES) {
     linesEl.removeChild(linesEl.firstChild);
   }
@@ -193,18 +185,18 @@ function displayFinalLine(text, skipFirebase){
   return div;
 }
 
-function pushHistory(text){
+function pushHistory(text) {
   historyLog.push(text);
   if (historyLog.length > 6) historyLog.shift();
 }
 
-function setStreamingText(text){
-  var el=$('streaming-line'), t=$('streaming-text'), cur=$('streaming-cursor');
-  if(!text){ el.classList.add('empty'); t.textContent=''; cur.style.display='none'; }
-  else { $('placeholder').style.display='none'; el.classList.remove('empty'); t.textContent=text; cur.style.display='inline-block'; }
+function setStreamingText(text) {
+  var el = $('streaming-line'), t = $('streaming-text'), cur = $('streaming-cursor');
+  if (!text) { el.classList.add('empty'); t.textContent = ''; cur.style.display = 'none'; }
+  else { $('placeholder').style.display = 'none'; el.classList.remove('empty'); t.textContent = text; cur.style.display = 'inline-block'; }
 }
 
-function clearTranslations(){
+function clearTranslations() {
   translationsRef.remove();
   $('translation-lines').innerHTML = '';
   setStreamingText('');
@@ -214,13 +206,13 @@ function clearTranslations(){
   $('placeholder').style.display = 'block';
 }
 
-// ── SPEECH RECOGNITION ───────────────────────
-function toggleListening(){ if(isListening) stopListening(); else startListening(); }
+// ── SPEECH RECOGNITION ───────────────────────────────────────────────────────
+function toggleListening() { if (isListening) stopListening(); else startListening(); }
 
-function startListening(){
+function startListening() {
   clearError();
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR){ showError('Please use Google Chrome.'); return; }
+  if (!SR) { showError('Please use Google Chrome.'); return; }
   isListening = true;
   fullTranscript = '';
   cursor = 0;
@@ -232,7 +224,7 @@ function startListening(){
   spawnRec();
 }
 
-function spawnRec(){
+function spawnRec() {
   if (!isListening) return;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   rec = new SR();
@@ -240,7 +232,7 @@ function spawnRec(){
   rec.continuous = true;
   rec.interimResults = true;
 
-  rec.onresult = function(e){
+  rec.onresult = function (e) {
     var finalText = '';
     var interimText = '';
     for (var i = 0; i < e.results.length; i++) {
@@ -248,7 +240,6 @@ function spawnRec(){
       else interimText += e.results[i][0].transcript;
     }
 
-    // Update the committed final transcript
     if (finalText) fullTranscript = finalText.trim();
 
     var unsent = fullTranscript.slice(cursor).trim();
@@ -258,32 +249,29 @@ function spawnRec(){
     if (!unsent) return;
     clearTimeout(silenceTimer);
 
-    // Commit immediately on a long chunk
-    if (unsent.length >= MAX_CHARS){
+    if (unsent.length >= MAX_CHARS) {
       commitTranslation();
       return;
     }
-    // Otherwise wait for silence — by then the recognizer will have finalized its results
     silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
   };
 
-  rec.onerror = function(e){
+  rec.onerror = function (e) {
     if (e.error === 'no-speech' || e.error === 'aborted') return;
-    if (e.error === 'not-allowed'){ showError('Microphone access denied.'); stopListening(); }
+    if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
   };
 
-  rec.onend = function(){
+  rec.onend = function () {
     if (!isListening) return;
-    // Chrome resets its internal transcript on restart; reset to match
     fullTranscript = '';
     cursor = 0;
     setTimeout(spawnRec, 150);
   };
 
-  try { rec.start(); } catch(e){}
+  try { rec.start(); } catch (e) {}
 }
 
-function commitTranslation(){
+function commitTranslation() {
   clearTimeout(silenceTimer);
   silenceTimer = null;
   var unsent = fullTranscript.slice(cursor).trim();
@@ -293,21 +281,20 @@ function commitTranslation(){
   enqueueTranslation(unsent);
 }
 
-// Queue a chunk; process immediately if nothing is in flight
-function enqueueTranslation(text){
+function enqueueTranslation(text) {
   translationQueue.push(text);
   processQueue();
 }
 
-function processQueue(){
+function processQueue() {
   if (isTranslating || translationQueue.length === 0) return;
   triggerTranslation(translationQueue.shift());
 }
 
-function stopListening(){
+function stopListening() {
   isListening = false;
   clearTimeout(silenceTimer); silenceTimer = null;
-  if (rec){ try{ rec.onend=null; rec.stop(); }catch(e){} rec=null; }
+  if (rec) { try { rec.onend = null; rec.stop(); } catch (e) {} rec = null; }
   $('startBtn').textContent = '▶ Start';
   $('startBtn').classList.remove('active');
   $('mic-indicator').classList.remove('active');
@@ -316,14 +303,13 @@ function stopListening(){
   setStatus('Stopped');
 }
 
-// ── TRANSLATION ──────────────────────────────
-async function triggerTranslation(text){
+// ── TRANSLATION ──────────────────────────────────────────────────────────────
+async function triggerTranslation(text) {
   isTranslating = true;
-  currentStreamText = '';
   setStatus('Translating…', 'translating');
   clearError();
 
-  var safetyTimeout = setTimeout(function(){
+  var safetyTimeout = setTimeout(function () {
     if (!isTranslating) return;
     isTranslating = false;
     setStatus('🎤 Listening…', 'listening');
@@ -331,10 +317,28 @@ async function triggerTranslation(text){
   }, 15000);
 
   var sermonContext = $('sermonContext').value.trim();
-  var sermonLine = sermonContext ? 'Sermon topic: ' + sermonContext + '\n\n' : '';
-  var contextStr = historyLog.length
-    ? 'Previous line for context only (do not extend or continue it):\n' + historyLog.slice(-1).map(function(h){ return 'EN: '+h; }).join('\n') + '\n\n'
+  var sermonLine    = sermonContext ? 'Sermon topic: ' + sermonContext + '\n\n' : '';
+  var contextStr    = historyLog.length
+    ? 'Previous line for context only (do not extend or continue it):\nEN: ' + historyLog[historyLog.length - 1] + '\n\n'
     : '';
+
+  var systemPrompt = 'You are a live interpreter for a Korean Christian worship service. '
+    + 'Translate ONLY what was said — do not add, infer, expand, or complete the speaker\'s thought. '
+    + 'If only one word or a short phrase was said, translate just that word or phrase. '
+    + 'Preserve the full meaning, tone, and theological weight of what was said. '
+    + 'Use standard English Bible vocabulary for theological terms (e.g. grace, redemption, sanctification, covenant). '
+    + 'Infer omitted grammatical subjects from context only when Korean grammar requires it, but never add content beyond what was spoken. '
+    + 'Speech recognition often mishears Korean Bible book names — correct them using context (e.g. 사사기=Judges, 열왕기=Kings, 이사야=Isaiah).\n\n'
+    + 'IMPORTANT: Never output "..." or any placeholder. Always translate what was said, even if it is a filler word, '
+    + 'repeated phrase, or transitional expression (e.g. 아/음/그/네 → "Yes" or "And" or omit gracefully). '
+    + 'If the input is genuinely unintelligible noise, respond with a single empty space " ". Never skip or omit a response.\n\n'
+    + 'Common Korean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) 신명기(Deuteronomy) '
+    + '여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) 열왕기상하(1-2Kings) 역대상하(1-2Chronicles) '
+    + '에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) 욥기(Job) 시편(Psalms) 잠언(Proverbs) 전도서(Ecclesiastes) '
+    + '이사야(Isaiah) 예레미야(Jeremiah) 에스겔(Ezekiel) 다니엘(Daniel) 마태복음(Matthew) 마가복음(Mark) '
+    + '누가복음(Luke) 요한복음(John) 사도행전(Acts) 로마서(Romans) 고린도전후서(1-2Corinthians) 갈라디아서(Galatians) '
+    + '에베소서(Ephesians) 빌립보서(Philippians) 골로새서(Colossians) 히브리서(Hebrews) 야고보서(James) 요한계시록(Revelation)\n\n'
+    + 'Respond with ONLY the translation, nothing else.';
 
   try {
     var res = await fetch(WORKER_URL, {
@@ -344,16 +348,16 @@ async function triggerTranslation(text){
         model: 'claude-sonnet-4-6',
         max_tokens: 200,
         stream: false,
-        system: 'You are a live interpreter for a Korean Christian worship service. Translate ONLY what was said — do not add, infer, expand, or complete the speaker's thought. If only one word or a short phrase was said, translate just that word or phrase. Preserve the full meaning, tone, and theological weight of what was said. Use standard English Bible vocabulary for theological terms (e.g. grace, redemption, sanctification, covenant). Infer omitted grammatical subjects from context only when Korean grammar requires it, but never add content beyond what was spoken. Speech recognition often mishears Korean Bible book names — correct them using context (e.g. 사사기=Judges, 열왕기=Kings, 이사야=Isaiah).\n\nIMPORTANT: Never output "..." or any placeholder. Always translate what was said, even if it is a filler word, repeated phrase, or transitional expression (e.g. 아/음/그/네 → "Yes" or "And" or just omit gracefully in context). If the input is genuinely unintelligible noise, respond with a single empty space " ". Never skip or omit a response.\n\nCommon Korean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) 신명기(Deuteronomy) 여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) 열왕기상하(1-2Kings) 역대상하(1-2Chronicles) 에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) 욥기(Job) 시편(Psalms) 잠언(Proverbs) 전도서(Ecclesiastes) 이사야(Isaiah) 예레미야(Jeremiah) 에스겔(Ezekiel) 다니엘(Daniel) 마태복음(Matthew) 마가복음(Mark) 누가복음(Luke) 요한복음(John) 사도행전(Acts) 로마서(Romans) 고린도전후서(1-2Corinthians) 갈라디아서(Galatians) 에베소서(Ephesians) 빌립보서(Philippians) 골로새서(Colossians) 히브리서(Hebrews) 야고보서(James) 요한계시록(Revelation)\n\nRespond with ONLY the translation, nothing else.',
+        system: systemPrompt,
         messages: [{ role: 'user', content: sermonLine + contextStr + 'Translate:\n' + text }]
       })
     });
 
     clearTimeout(safetyTimeout);
 
-    if (!res.ok){
+    if (!res.ok) {
       var errData = await res.json();
-      showError('API error: ' + (errData&&errData.error ? errData.error.message : 'HTTP '+res.status));
+      showError('API error: ' + (errData && errData.error ? errData.error.message : 'HTTP ' + res.status));
       isTranslating = false; processQueue(); return;
     }
 
@@ -363,8 +367,7 @@ async function triggerTranslation(text){
     // Filter out ellipsis-only or whitespace-only responses
     if (result && /^[\s.…]+$/.test(result)) result = null;
 
-    if (result){
-      // Push to Firebase once and store the key
+    if (result) {
       var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
       lastFirebaseKey = newRef.key;
       displayFinalLine(result, true);
@@ -376,7 +379,7 @@ async function triggerTranslation(text){
     dbg('done | history:' + historyLog.length + ' queue:' + translationQueue.length);
     processQueue();
 
-  } catch(err){
+  } catch (err) {
     clearTimeout(safetyTimeout);
     if (err.name !== 'AbortError') showError('Network error: ' + err.message);
     isTranslating = false;
