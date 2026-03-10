@@ -392,9 +392,11 @@ async function triggerTranslation(text) {
   var systemPrompt =
     'You are a live interpreter for a Korean Christian worship service. '
     + 'Translate the full meaning of what was said into natural, faithful English. '
+    + 'The input may begin mid-sentence due to live audio chunking — if so, begin your translation '
+    + 'from the first complete word or thought in the input, and always end at a natural sentence '
+    + 'or clause boundary, never mid-thought. '
     + 'Do not add or expand beyond what was spoken, but never omit or skip entire sentences or thoughts — '
     + 'every complete idea the speaker expressed must appear in the translation. '
-    + 'End your translation at a natural sentence or clause boundary — never mid-thought. '
     + 'Pay close attention to colloquial and conversational Korean — informal phrasing, negations, '
     + 'and implied subjects must be rendered accurately. '
     + 'When colloquial expressions are ambiguous, use the sermon context and prior lines to interpret '
@@ -444,8 +446,9 @@ async function triggerTranslation(text) {
     var data = await res.json();
     var result = data && data.content && data.content[0] ? data.content[0].text.trim() : null;
 
-    // Filter out ellipsis-only or whitespace-only responses
+    // Filter out ellipsis-only, whitespace-only, or Korean-containing responses
     if (result && /^[\s.…]+$/.test(result)) result = null;
+    if (result && /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(result)) result = null;
 
     if (result) {
       var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
