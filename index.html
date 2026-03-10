@@ -125,17 +125,16 @@ if (!isOperator) {
 }
 
 // ── OPERATOR STATE ───────────────────────────
-var rec            = null;
-var isListening    = false;
-var silenceTimer   = null;
-var isTranslating  = false;
-var historyLog     = [];
+var rec              = null;
+var isListening      = false;
+var silenceTimer     = null;
+var isTranslating    = false;
+var translationQueue = [];   // chunks waiting to translate while one is in flight
+var historyLog       = [];
 var currentStreamText = '';
-var fullTranscript = '';
-var cursor         = 0;
-
-// Track the last Firebase key so we can update it on a merge instead of pushing a new one
-var lastFirebaseKey = null;
+var fullTranscript   = '';
+var cursor           = 0;
+var lastFirebaseKey  = null;
 
 // ── UI HELPERS ───────────────────────────────
 function showError(msg){ $('error-box').style.display='block'; $('error-box').textContent=msg; setStatus('Error','error'); }
@@ -158,9 +157,6 @@ function reclassLines(){
   });
 }
 
-// FIX 1: Removed reference to nonexistent #translation-viewport.
-// FIX 2: No longer pushes to Firebase here — caller is responsible for the push.
-//         Merge case updates the existing Firebase entry instead of pushing a new one.
 function displayFinalLine(text, skipFirebase){
   $('placeholder').style.display = 'none';
   var linesEl = $('translation-lines');
@@ -171,11 +167,11 @@ function displayFinalLine(text, skipFirebase){
     var merged = lastLine.textContent + ' ' + text;
     lastLine.style.opacity = '0.5';
     setTimeout(function(){
-      if (!lastLine || !lastLine.parentNode) return; // guard: element may have been removed
+      if (!lastLine || !lastLine.parentNode) return;
       lastLine.textContent = merged;
       lastLine.style.opacity = '1';
     }, 200);
-    // FIX 2 (merge): update the existing Firebase entry rather than pushing a duplicate
+    // Update the existing Firebase entry instead of pushing a duplicate
     if (!skipFirebase && lastFirebaseKey) {
       translationsRef.child(lastFirebaseKey).update({ text: merged });
     }
@@ -194,24 +190,12 @@ function displayFinalLine(text, skipFirebase){
     linesEl.removeChild(linesEl.firstChild);
   }
   reclassLines();
-
-  // FIX 1: removed smoothScroll / viewport logic that referenced nonexistent element
-
   return div;
 }
 
 function pushHistory(text){
   historyLog.push(text);
   if (historyLog.length > 6) historyLog.shift();
-}
-
-function afterTranslation(){
-  var unsent = fullTranscript.slice(cursor).trim();
-  if (unsent.length > 10){
-    cursor = fullTranscript.length;
-    $('interim-text').textContent = '';
-    triggerTranslation(unsent);
-  }
 }
 
 function setStreamingText(text){
@@ -226,6 +210,7 @@ function clearTranslations(){
   setStreamingText('');
   fullTranscript = ''; cursor = 0;
   lastFirebaseKey = null;
+  translationQueue = [];
   $('placeholder').style.display = 'block';
 }
 
@@ -239,6 +224,7 @@ function startListening(){
   isListening = true;
   fullTranscript = '';
   cursor = 0;
+  translationQueue = [];
   $('startBtn').textContent = '■ Stop';
   $('startBtn').classList.add('active');
   $('mic-indicator').classList.add('active');
@@ -262,7 +248,7 @@ function spawnRec(){
 
     var unsent = full.slice(cursor).trim();
     $('interim-text').textContent = unsent ? '"' + unsent + '"' : '';
-    dbg('total:' + full.length + ' cursor:' + cursor + ' unsent:' + unsent.length);
+    dbg('total:' + full.length + ' cursor:' + cursor + ' unsent:' + unsent.length + ' q:' + translationQueue.length);
 
     if (!unsent) return;
     clearTimeout(silenceTimer);
@@ -279,12 +265,9 @@ function spawnRec(){
     if (e.error === 'not-allowed'){ showError('Microphone access denied.'); stopListening(); }
   };
 
-  // FIX 3: Save the cursor position before the recognizer restarts so we don't
-  //         re-translate text that was already sent.
   rec.onend = function(){
     if (!isListening) return;
-    // Chrome resets its internal transcript on restart, so we must also reset,
-    // but we preserve cursor=0 since the new session starts fresh too.
+    // Chrome resets its internal transcript on restart; reset to match
     fullTranscript = '';
     cursor = 0;
     setTimeout(spawnRec, 150);
@@ -296,12 +279,22 @@ function spawnRec(){
 function commitTranslation(){
   clearTimeout(silenceTimer);
   silenceTimer = null;
-  if (isTranslating) return;
   var unsent = fullTranscript.slice(cursor).trim();
   if (!unsent) return;
   cursor = fullTranscript.length;
   $('interim-text').textContent = '';
-  triggerTranslation(unsent);
+  enqueueTranslation(unsent);
+}
+
+// Queue a chunk; process immediately if nothing is in flight
+function enqueueTranslation(text){
+  translationQueue.push(text);
+  processQueue();
+}
+
+function processQueue(){
+  if (isTranslating || translationQueue.length === 0) return;
+  triggerTranslation(translationQueue.shift());
 }
 
 function stopListening(){
@@ -318,7 +311,6 @@ function stopListening(){
 
 // ── TRANSLATION ──────────────────────────────
 async function triggerTranslation(text){
-  if (isTranslating) return;
   isTranslating = true;
   currentStreamText = '';
   setStatus('Translating…', 'translating');
@@ -326,8 +318,9 @@ async function triggerTranslation(text){
 
   var safetyTimeout = setTimeout(function(){
     if (!isTranslating) return;
-    isTranslating = false; setStatus('🎤 Listening…', 'listening');
-    afterTranslation();
+    isTranslating = false;
+    setStatus('🎤 Listening…', 'listening');
+    processQueue();
   }, 15000);
 
   var sermonContext = $('sermonContext').value.trim();
@@ -341,10 +334,10 @@ async function triggerTranslation(text){
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',   // FIX 4: updated model string
+        model: 'claude-sonnet-4-6',
         max_tokens: 200,
         stream: false,
-        system: 'You are a live interpreter for a Korean Christian worship service. Translate the Korean into natural, faithful English that preserves the full meaning, tone, and theological weight of what was said. Do not simplify, paraphrase, or water down the content — render it accurately as a skilled human interpreter would. Keep the sentence structure readable for a live audience (1-2 sentences where possible), but never sacrifice meaning for brevity. Use standard English Bible vocabulary for theological terms (e.g. grace, redemption, sanctification, covenant). Infer omitted subjects from context. Speech recognition often mishears Korean Bible book names — correct them using context (e.g. 사사기=Judges, 열왕기=Kings, 이사야=Isaiah).\n\nCommon Korean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) 신명기(Deuteronomy) 여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) 열왕기상하(1-2Kings) 역대상하(1-2Chronicles) 에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) 욥기(Job) 시편(Psalms) 잠언(Proverbs) 전도서(Ecclesiastes) 이사야(Isaiah) 예레미야(Jeremiah) 에스겔(Ezekiel) 다니엘(Daniel) 마태복음(Matthew) 마가복음(Mark) 누가복음(Luke) 요한복음(John) 사도행전(Acts) 로마서(Romans) 고린도전후서(1-2Corinthians) 갈라디아서(Galatians) 에베소서(Ephesians) 빌립보서(Philippians) 골로새서(Colossians) 히브리서(Hebrews) 야고보서(James) 요한계시록(Revelation)\n\nRespond with ONLY the translation, nothing else.',
+        system: 'You are a live interpreter for a Korean Christian worship service. Translate the Korean into natural, faithful English that preserves the full meaning, tone, and theological weight of what was said. Do not simplify, paraphrase, or water down the content — render it accurately as a skilled human interpreter would. Keep the sentence structure readable for a live audience (1-2 sentences where possible), but never sacrifice meaning for brevity. Use standard English Bible vocabulary for theological terms (e.g. grace, redemption, sanctification, covenant). Infer omitted subjects from context. Speech recognition often mishears Korean Bible book names — correct them using context (e.g. 사사기=Judges, 열왕기=Kings, 이사야=Isaiah).\n\nIMPORTANT: Never output "..." or any placeholder. Always translate what was said, even if it is a filler word, repeated phrase, or transitional expression (e.g. 아/음/그/네 → "Yes" or "And" or just omit gracefully in context). If the input is genuinely unintelligible noise, respond with a single empty space " ". Never skip or omit a response.\n\nCommon Korean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) 신명기(Deuteronomy) 여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) 열왕기상하(1-2Kings) 역대상하(1-2Chronicles) 에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) 욥기(Job) 시편(Psalms) 잠언(Proverbs) 전도서(Ecclesiastes) 이사야(Isaiah) 예레미야(Jeremiah) 에스겔(Ezekiel) 다니엘(Daniel) 마태복음(Matthew) 마가복음(Mark) 누가복음(Luke) 요한복음(John) 사도행전(Acts) 로마서(Romans) 고린도전후서(1-2Corinthians) 갈라디아서(Galatians) 에베소서(Ephesians) 빌립보서(Philippians) 골로새서(Colossians) 히브리서(Hebrews) 야고보서(James) 요한계시록(Revelation)\n\nRespond with ONLY the translation, nothing else.',
         messages: [{ role: 'user', content: sermonLine + contextStr + 'Translate:\n' + text }]
       })
     });
@@ -354,16 +347,17 @@ async function triggerTranslation(text){
     if (!res.ok){
       var errData = await res.json();
       showError('API error: ' + (errData&&errData.error ? errData.error.message : 'HTTP '+res.status));
-      isTranslating = false; afterTranslation(); return;
+      isTranslating = false; processQueue(); return;
     }
 
     var data = await res.json();
     var result = data && data.content && data.content[0] ? data.content[0].text.trim() : null;
 
+    // Filter out ellipsis-only or whitespace-only responses
+    if (result && /^[\s.…]+$/.test(result)) result = null;
+
     if (result){
-      // FIX 2: Push to Firebase ONCE here and store the key.
-      //         displayFinalLine uses skipFirebase=true to avoid a second push.
-      //         If the line gets merged, displayFinalLine will update the existing key instead.
+      // Push to Firebase once and store the key
       var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
       lastFirebaseKey = newRef.key;
       displayFinalLine(result, true);
@@ -372,13 +366,14 @@ async function triggerTranslation(text){
 
     isTranslating = false;
     setStatus('🎤 Listening…', 'listening');
-    dbg('done | history:' + historyLog.length);
-    afterTranslation();
+    dbg('done | history:' + historyLog.length + ' queue:' + translationQueue.length);
+    processQueue();
 
   } catch(err){
     clearTimeout(safetyTimeout);
     if (err.name !== 'AbortError') showError('Network error: ' + err.message);
-    isTranslating = false; afterTranslation();
+    isTranslating = false;
+    processQueue();
   }
 }
 </script>
