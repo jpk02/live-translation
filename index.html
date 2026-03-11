@@ -573,7 +573,7 @@ async function triggerTranslation(text, attempt) {
     ? 'Recent translations — use for tone, vocabulary, and continuity:\n'
       + historyLog.slice(-8).map(function (h) { return 'EN: ' + h; }).join('\n') + '\n\n'
       + 'The previous translation ended with: "' + historyLog[historyLog.length - 1] + '"\n'
-      + 'Your translation should flow naturally from this.\n\n'
+      + 'Your translation must connect smoothly to this — if the new chunk continues the same thought or narrative, begin with a natural connector (e.g. "And", "So", "Then") rather than starting a new disconnected sentence.\n\n'
     : '';
 
   var systemPrompt =
