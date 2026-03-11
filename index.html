@@ -33,7 +33,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 #placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: #2a2a2a; pointer-events: none; }
 #placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
 #translation-box { width: 100%; max-width: 1200px; text-align: center; }
-#translation-lines { display: flex; flex-direction: column; gap: 24px; margin-bottom: 12px; }
+#translation-lines { display: flex; flex-direction: column; gap: 14px; margin-bottom: 12px; }
 .tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); overflow: hidden; transition: color 0.8s, opacity 0.8s; }
 .tline.newest { color: #ffffff; }
 .tline.oldest  { color: #555555; }
@@ -115,8 +115,8 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
 var MODEL            = 'claude-sonnet-4-6';
-var SILENCE_MS       = 8000;
-var FORCE_COMMIT_MS  = 15000;
+var SILENCE_MS       = 6000;
+var FORCE_COMMIT_MS  = 17000;
 var MAX_CHARS        = 500;
 var MAX_LINES        = 5;
 var SHORT_LINE_CHARS = 0;
@@ -135,7 +135,7 @@ var firebaseConfig = {
   appId: "1:189364035896:web:552700e29449859089a1cd"
 };
 firebase.initializeApp(firebaseConfig);
-var db             = firebase.database();
+var db              = firebase.database();
 var translationsRef = db.ref('translations');
 var libraryRef      = db.ref('correction_library');
 var isOperator      = window.location.search.includes('operator');
@@ -152,7 +152,7 @@ if (isOperator || isReview) {
 
 // ── REVIEW PAGE ───────────────────────────────────────────────────────────────
 if (isReview) {
-  $('main-page').style.display  = 'none';
+  $('main-page').style.display   = 'none';
   $('review-page').style.display = 'flex';
 
   var library = {};
@@ -197,9 +197,9 @@ if (isReview) {
   }
 
   function saveCorrection(key) {
-    var korean = $('ko-' + key).value.trim();
+    var korean  = $('ko-' + key).value.trim();
     var english = $('en-' + key).value.trim();
-    var note = $('note-' + key).value.trim();
+    var note    = $('note-' + key).value.trim();
     if (!english) { alert('Please enter the correct English translation.'); return; }
     libraryRef.push({ korean: korean || '', english: english, note: note, savedAt: firebase.database.ServerValue.TIMESTAMP });
     var ri = $('ri-' + key);
@@ -489,18 +489,6 @@ function enqueueTranslation(text) {
   processQueue();
 }
 
-function splitIntoChunks(text, maxChars) {
-  if (text.length <= maxChars) return [text];
-  var sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-  var chunks = [], current = '';
-  sentences.forEach(function (s) {
-    if (current.length + s.length > maxChars && current) { chunks.push(current.trim()); current = s; }
-    else current += s;
-  });
-  if (current.trim()) chunks.push(current.trim());
-  return chunks.length ? chunks : [text];
-}
-
 function processQueue() {
   if (isTranslating || translationQueue.length === 0) return;
   triggerTranslation(translationQueue.shift(), 0);
@@ -533,20 +521,15 @@ var SYSTEM_PROMPT =
   'Use precise theological vocabulary where appropriate ' +
   '(e.g. sanctification, justification, atonement, covenant, redemption, grace, sovereignty). ' +
   'Preserve the speaker\'s tone — whether urgent, gentle, celebratory, or solemn. ' +
-  'When the speaker references a specific proper noun — a person\'s name, TV program, book, brand, or cultural reference — ' +
-  'preserve it explicitly by name. Do not generalize or paraphrase proper nouns into generic descriptions. ' +
-  'Always translate the name into English where a natural translation exists (e.g. 골목식당 = "Alley Restaurant"). ' +
+  'Infer implied grammatical subjects from context when Korean omits them, but add nothing beyond what was said. ' +
+  'When the Korean uses a person\'s name, always use that name — never substitute it with a pronoun. ' +
+  'Only use a pronoun if the Korean itself used a pronoun. ' +
+  'When the speaker references a proper noun — a person\'s name, TV program, book, or cultural reference — ' +
+  'preserve it by name. Translate into English where a natural translation exists (e.g. 골목식당 = "Alley Restaurant"). ' +
   'Only romanize if there is no meaningful English translation. ' +
-  'For Korean cultural references unfamiliar to English speakers, give the translated English name ' +
-  'followed by a brief parenthetical if it aids understanding (e.g. "Baek Jong-won\'s Alley Restaurant (a TV program helping struggling restaurants)"). ' +
-  'When the Korean uses a person\'s name, always use that name in the English translation — never substitute it with a pronoun like "he" or "she". ' +
-  'Only use a pronoun if the Korean itself used a pronoun. '
-  'The input comes from live speech recognition and may begin or end mid-sentence. ' +
-  'Translate exactly what is given — do not pad, expand, repeat, or infer content that is not in the input. ' +
-  'If the input starts mid-sentence, begin the translation mid-sentence. ' +
-  'If the input ends mid-sentence, end the translation there. ' +
-  'Never restate the same idea twice in different words. ' +
-  'Correct misheared Korean Bible-related terms: 성경=Bible, 성경책=Bible, ' + +
+  'The input comes from live speech recognition and may begin mid-sentence — ' +
+  'start from the first complete thought and end at a natural sentence boundary. ' +
+  'Correct misheared Korean Bible-related terms: 성경=Bible, 성경책=Bible, ' +
   '창세기=Genesis, 출애굽기=Exodus, 레위기=Leviticus, 민수기=Numbers, 신명기=Deuteronomy, ' +
   '여호수아=Joshua, 사사기=Judges, 룻기=Ruth, 사무엘=Samuel, 열왕기=Kings, 역대=Chronicles, ' +
   '에스라=Ezra, 느헤미야=Nehemiah, 에스더=Esther, 욥기=Job, 시편=Psalms, 잠언=Proverbs, ' +
@@ -556,9 +539,8 @@ var SYSTEM_PROMPT =
   '빌립보=Philippians, 골로새=Colossians, 데살로니가=Thessalonians, 디모데=Timothy, ' +
   '디도=Titus, 빌레몬=Philemon, 히브리서=Hebrews, 야고보서=James, 베드로=Peter, ' +
   '요한서=John (epistle), 유다서=Jude, 요한계시록=Revelation. ' +
-  'Respond with ONLY the translation — no commentary, no explanation. ' +
-  'If the translation is long, break it into paragraphs of 2-3 complete sentences each, separated by a blank line. ' +
-  'Never break mid-sentence. Never exceed 4 paragraphs per response.';
+  'If the input is genuinely unintelligible, respond with a single space. ' +
+  'Respond with ONLY the translation — no commentary, no explanation.';
 
 // ── TRANSLATION ───────────────────────────────────────────────────────────────
 async function triggerTranslation(text, attempt) {
@@ -586,7 +568,7 @@ async function triggerTranslation(text, attempt) {
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        model: MODEL, max_tokens: 400, stream: false,
+        model: MODEL, max_tokens: 600, stream: false,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userContent }]
       })
@@ -608,16 +590,13 @@ async function triggerTranslation(text, attempt) {
     }
 
     if (result) {
-      var paragraphs = result.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
-      paragraphs.forEach(function (para) {
-        try {
-          var newRef = translationsRef.push({ text: para, timestamp: firebase.database.ServerValue.TIMESTAMP });
-          if (newRef) lastFirebaseKey = newRef.key;
-        } catch (fbErr) { dbg('firebase err: ' + fbErr.message); }
-        displayFinalLine(para, true);
-        historyLog.push(para);
-        if (historyLog.length > 8) historyLog.shift();
-      });
+      try {
+        var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
+        if (newRef) lastFirebaseKey = newRef.key;
+      } catch (fbErr) { dbg('firebase err: ' + fbErr.message); }
+      displayFinalLine(result, true);
+      historyLog.push(result);
+      if (historyLog.length > 8) historyLog.shift();
     }
 
     isTranslating = false;
