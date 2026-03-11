@@ -116,7 +116,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
 var MODEL            = 'claude-sonnet-4-6';
 var SILENCE_MS       = 5000;
-var FORCE_COMMIT_MS  = 8000;
+var FORCE_COMMIT_MS  = 15000;
 var MAX_CHARS        = 500;
 var MAX_LINES        = 5;
 var SHORT_LINE_CHARS = 0;
@@ -485,9 +485,7 @@ function commitTranslation() {
 
 function enqueueTranslation(text) {
   if (!text || text.trim().length < 10) return;
-  splitIntoChunks(text.trim(), 200).forEach(function (chunk) {
-    translationQueue.push(chunk);
-  });
+  translationQueue.push(text.trim());
   processQueue();
 }
 
@@ -552,8 +550,9 @@ var SYSTEM_PROMPT =
   '빌립보=Philippians, 골로새=Colossians, 데살로니가=Thessalonians, 디모데=Timothy, ' +
   '디도=Titus, 빌레몬=Philemon, 히브리서=Hebrews, 야고보서=James, 베드로=Peter, ' +
   '요한서=John (epistle), 유다서=Jude, 요한계시록=Revelation. ' +
-  'If the input is genuinely unintelligible, respond with a single space. ' +
-  'Respond with ONLY the translation — no commentary, no explanation.';
+  'Respond with ONLY the translation — no commentary, no explanation. ' +
+  'If the translation is long, break it into short natural paragraphs of 1-2 sentences each, separated by a blank line. ' +
+  'Never exceed 4 paragraphs per response.';
 
 // ── TRANSLATION ───────────────────────────────────────────────────────────────
 async function triggerTranslation(text, attempt) {
@@ -603,13 +602,16 @@ async function triggerTranslation(text, attempt) {
     }
 
     if (result) {
-      try {
-        var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
-        if (newRef) lastFirebaseKey = newRef.key;
-      } catch (fbErr) { dbg('firebase err: ' + fbErr.message); }
-      displayFinalLine(result, true);
-      historyLog.push(result);
-      if (historyLog.length > 8) historyLog.shift();
+      var paragraphs = result.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
+      paragraphs.forEach(function (para) {
+        try {
+          var newRef = translationsRef.push({ text: para, timestamp: firebase.database.ServerValue.TIMESTAMP });
+          if (newRef) lastFirebaseKey = newRef.key;
+        } catch (fbErr) { dbg('firebase err: ' + fbErr.message); }
+        displayFinalLine(para, true);
+        historyLog.push(para);
+        if (historyLog.length > 8) historyLog.shift();
+      });
     }
 
     isTranslating = false;
