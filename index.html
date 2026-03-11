@@ -6,125 +6,75 @@
 <title>Live Translation</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; background: #0a0a0a; color: #f0f0f0; font-family: 'Georgia', serif; }
-
-/* ── PAGES ── */
-#main-page { display: flex; flex-direction: column; height: 100%; }
-#review-page { display: none; flex-direction: column; height: 100%; }
-
-/* ── CONTROLS ── */
-#controls { background: #111; border-bottom: 1px solid #222; padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap; }
-input[type="text"] { background: #1e1e1e; border: 1px solid #333; border-radius: 6px; color: #f0f0f0; padding: 6px 10px; font-size: 13px; width: 260px; }
-button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; cursor: pointer; font-weight: 600; }
-#startBtn { background: #2ecc71; color: #000; }
-#startBtn.active { background: #e74c3c; color: #fff; }
-#fullscreenBtn { background: #333; color: #ccc; margin-left: auto; }
-#status { font-size: 12px; color: #666; min-width: 160px; }
-#status.listening   { color: #2ecc71; }
-#status.translating { color: #aaaaaa; }
-#status.error       { color: #e74c3c; }
-#error-box { display: none; background: #1a0000; border: 1px solid #500; border-radius: 8px; padding: 10px 16px; font-size: 12px; color: #ff6b6b; margin: 6px 20px; font-family: monospace; word-break: break-all; flex-shrink: 0; }
-
-/* ── DISPLAY ── */
-#display { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 24px 40px; position: relative; overflow: hidden; }
-#placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: #2a2a2a; pointer-events: none; }
-#placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
-#translation-box { width: 100%; max-width: 1200px; text-align: center; }
-#translation-lines { display: flex; flex-direction: column; gap: 14px; margin-bottom: 12px; }
-.tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); overflow: hidden; transition: color 0.8s, opacity 0.8s; }
-.tline.newest { color: #ffffff; }
-.tline.oldest  { color: #555555; }
-#interim-text { font-size: clamp(11px,1.2vw,16px); color: #333; margin-top: 12px; font-style: italic; min-height: 1.2em; font-family: sans-serif; }
-#mic-indicator { position: fixed; bottom: 24px; right: 28px; width: 14px; height: 14px; border-radius: 50%; background: #333; }
-#mic-indicator.active { background: #2ecc71; box-shadow: 0 0 10px #2ecc71; animation: pulse 1.5s infinite; }
-#debug-badge { position: fixed; bottom: 24px; left: 20px; font-size: 11px; font-family: monospace; color: #555; background: #111; padding: 4px 8px; border-radius: 4px; border: 1px solid #222; pointer-events: none; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-
-/* ── REVIEW PAGE ── */
-#review-header { background: #111; border-bottom: 1px solid #222; padding: 16px 24px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
-#review-header h2 { font-size: 16px; font-weight: 600; color: #f0f0f0; flex: 1; }
-#review-header span { font-size: 12px; color: #555; }
-#review-list { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
-.review-item { background: #111; border: 1px solid #222; border-radius: 10px; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
-.review-item.flagged { border-color: #c0392b; background: #1a0a0a; }
-.review-item.saved   { border-color: #27ae60; background: #0a1a0a; }
-.review-english { font-size: 15px; color: #f0f0f0; line-height: 1.5; }
-.review-actions { display: flex; gap: 8px; align-items: flex-start; }
-.btn-flag { background: #c0392b; color: #fff; font-size: 12px; padding: 5px 12px; white-space: nowrap; }
-.correction-area { display: none; flex-direction: column; gap: 8px; }
-.correction-area.open { display: flex; }
-.correction-area label { font-size: 11px; color: #666; font-family: sans-serif; }
-.correction-area textarea { background: #1e1e1e; border: 1px solid #444; border-radius: 6px; color: #f0f0f0; padding: 8px 10px; font-size: 13px; font-family: 'Georgia', serif; resize: vertical; min-height: 60px; }
-.correction-area input[type="text"] { width: 100%; font-size: 13px; }
-.btn-save { background: #27ae60; color: #fff; font-size: 12px; padding: 5px 14px; }
-#review-empty { text-align: center; color: #333; padding: 60px 0; font-size: 15px; }
-#library-section { border-top: 1px solid #1a1a1a; padding: 24px; flex-shrink: 0; }
-#library-section h3 { font-size: 13px; color: #555; margin-bottom: 12px; font-family: sans-serif; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
-#library-list { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
-.lib-item { background: #111; border: 1px solid #222; border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.lib-item-text { flex: 1; }
-.lib-korean  { font-size: 12px; color: #888; font-family: sans-serif; margin-bottom: 3px; }
-.lib-english { font-size: 13px; color: #ccc; }
-.lib-note    { font-size: 11px; color: #555; font-style: italic; margin-top: 3px; font-family: sans-serif; }
-.btn-delete  { background: none; border: none; color: #444; font-size: 16px; cursor: pointer; padding: 0 4px; flex-shrink: 0; }
-.btn-delete:hover { color: #e74c3c; }
-#lib-empty { font-size: 13px; color: #333; font-family: sans-serif; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #f0f0f0; font-family: 'Georgia', serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  #controls { background: #111; border-bottom: 1px solid #222; padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap; }
+  input[type="text"] { background: #1e1e1e; border: 1px solid #333; border-radius: 6px; color: #f0f0f0; padding: 6px 10px; font-size: 13px; width: 260px; }
+  button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; cursor: pointer; font-weight: 600; }
+  #startBtn { background: #2ecc71; color: #000; }
+  #startBtn.active { background: #e74c3c; color: #fff; }
+  #fullscreenBtn { background: #333; color: #ccc; margin-left: auto; }
+  #status { font-size: 12px; color: #666; min-width: 160px; }
+  #status.listening { color: #2ecc71; }
+  #status.translating { color: #aaaaaa; }
+  #status.error { color: #e74c3c; }
+  #error-box { display: none; background: #1a0000; border: 1px solid #500; border-radius: 8px; padding: 10px 16px; font-size: 12px; color: #ff6b6b; margin: 6px 20px; font-family: monospace; word-break: break-all; flex-shrink: 0; }
+  #display { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 24px 40px; position: relative; overflow: hidden; }
+  #placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: #2a2a2a; pointer-events: none; }
+  #placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
+  #translation-box { width: 100%; max-width: 1200px; text-align: center; }
+  #translation-lines { display: flex; flex-direction: column; gap: 14px; margin-bottom: 12px; }
+  .tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); overflow: hidden; transition: color 0.8s, opacity 0.8s; }
+  .tline.newest { color: #ffffff; }
+  .tline.oldest { color: #555555; }
+  #streaming-line { font-size: clamp(18px,2.5vw,36px); line-height: 1.4; color: #aaaaaa; text-shadow: 0 2px 20px rgba(0,0,0,0.8); min-height: 1.4em; transition: opacity 0.3s; }
+  #streaming-line.empty { opacity: 0; }
+  #streaming-cursor { display: inline-block; width: 3px; height: 0.85em; background: #aaaaaa; vertical-align: text-bottom; margin-left: 3px; animation: blink 0.7s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  #interim-text { font-size: clamp(11px,1.2vw,16px); color: #333; margin-top: 12px; font-style: italic; min-height: 1.2em; font-family: sans-serif; }
+  #debug-badge { position: fixed; bottom: 24px; left: 20px; font-size: 11px; font-family: monospace; color: #555; background: #111; padding: 4px 8px; border-radius: 4px; border: 1px solid #222; pointer-events: none; }
+  #mic-indicator { position: fixed; bottom: 24px; right: 28px; width: 14px; height: 14px; border-radius: 50%; background: #333; }
+  #mic-indicator.active { background: #2ecc71; box-shadow: 0 0 10px #2ecc71; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 </style>
 </head>
 <body>
 
-<!-- ── MAIN PAGE ── -->
-<div id="main-page">
-  <div id="controls">
-    <label style="font-size:13px;color:#888;">Sermon topic:</label>
-    <input type="text" id="sermonContext" placeholder="e.g. John 3:16, faith, grace" />
-    <button id="startBtn" onclick="toggleListening()">▶ Start</button>
-    <button onclick="clearTranslations()" style="background:#555;color:#ccc;">⌫ Clear</button>
-    <span id="status">Ready</span>
-    <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
-  </div>
-  <div id="error-box"></div>
-  <div id="display">
-    <div id="placeholder"><h1>CHIU YANG CHURCH</h1></div>
-    <div id="translation-box">
-      <div id="translation-lines"></div>
-      <div id="interim-text"></div>
-    </div>
-  </div>
-  <div id="mic-indicator"></div>
-  <div id="debug-badge">ready</div>
+<div id="controls">
+  <label style="font-size:13px;color:#888;">Sermon topic:</label>
+  <input type="text" id="sermonContext" placeholder="e.g. John 3:16, faith, grace" />
+  <button id="startBtn" onclick="toggleListening()">▶ Start</button>
+  <button id="clearBtn" onclick="clearTranslations()" style="background:#555;color:#ccc;">⌫ Clear</button>
+  <span id="status">Ready</span>
+  <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
 </div>
+<div id="error-box"></div>
 
-<!-- ── REVIEW PAGE ── -->
-<div id="review-page">
-  <div id="review-header">
-    <h2>📋 Post-Sermon Review</h2>
-    <span id="review-subtitle">Flag mistranslations to build the correction library</span>
-  </div>
-  <div id="review-list"><div id="review-empty">No translations from this session yet.</div></div>
-  <div id="library-section">
-    <h3>Correction Library</h3>
-    <div id="library-list"><div id="lib-empty">No corrections saved yet.</div></div>
+<div id="display">
+  <div id="placeholder"><h1>CHIU YANG CHURCH</h1></div>
+  <div id="translation-box">
+    <div id="translation-lines"></div>
+    <div id="streaming-line" class="empty">
+      <span id="streaming-text"></span><span id="streaming-cursor" style="display:none"></span>
+    </div>
+    <div id="interim-text"></div>
   </div>
 </div>
+<div id="mic-indicator"></div>
+<div id="debug-badge">ready</div>
 
 <script>
-// ── CONFIG ────────────────────────────────────────────────────────────────────
-var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
-var MODEL            = 'claude-sonnet-4-6';
-var SILENCE_MS       = 6000;
-var FORCE_COMMIT_MS  = 17000;
-var MAX_CHARS        = 500;
-var MAX_LINES        = 5;
-var SHORT_LINE_CHARS = 0;
-var MAX_RETRIES      = 2;
-var REQUEST_TIMEOUT  = 20000;
-var PROACTIVE_MS     = 25000;
+// ── CONFIG ───────────────────────────────────────────────────────────────────
+var WORKER_URL      = 'https://live-translation.pauljkim22.workers.dev';
+var MODEL           = 'claude-sonnet-4-6';  // pin this — update manually if needed
+var SILENCE_MS      = 8000;   // ms of silence before committing
+var MAX_CHARS       = 500;    // effectively disabled — silence + force commit drive timing
+var FORCE_COMMIT_MS = 20000;  // hard commit every N ms during continuous speech
+var MAX_LINES       = 5;
+var SHORT_LINE_CHARS = 120;
 
-// ── FIREBASE ──────────────────────────────────────────────────────────────────
+// ── FIREBASE ─────────────────────────────────────────────────────────────────
 var firebaseConfig = {
   apiKey: "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
   authDomain: "live-translation-fd583.firebaseapp.com",
@@ -135,120 +85,32 @@ var firebaseConfig = {
   appId: "1:189364035896:web:552700e29449859089a1cd"
 };
 firebase.initializeApp(firebaseConfig);
-var db              = firebase.database();
+var db = firebase.database();
 var translationsRef = db.ref('translations');
-var libraryRef      = db.ref('correction_library');
-var isOperator      = window.location.search.includes('operator');
-var isReview        = window.location.search.includes('review');
+var isOperator = window.location.search.includes('operator');
 
 function $(id) { return document.getElementById(id); }
 
-// ── AUTH ──────────────────────────────────────────────────────────────────────
-if (isOperator || isReview) {
-  firebase.auth().signInAnonymously().catch(function (err) {
-    console.warn('Firebase auth failed:', err.message);
-  });
-}
-
-// ── REVIEW PAGE ───────────────────────────────────────────────────────────────
-if (isReview) {
-  $('main-page').style.display   = 'none';
-  $('review-page').style.display = 'flex';
-
-  var library = {};
-
-  libraryRef.on('value', function (snap) {
-    library = snap.val() || {};
-    renderLibrary();
-  });
-
-  translationsRef.once('value', function (snap) {
-    var items = [];
-    snap.forEach(function (child) {
-      if (child.val() && child.val().text) items.push({ key: child.key, english: child.val().text });
-    });
-    if (!items.length) return;
-    var el = $('review-list');
-    el.innerHTML = '';
-    items.forEach(function (item) {
-      var div = document.createElement('div');
-      div.className = 'review-item';
-      div.id = 'ri-' + item.key;
-      div.innerHTML =
-        '<div class="review-english">' + esc(item.english) + '</div>' +
-        '<div class="review-actions"><button class="btn-flag" onclick="flagItem(\'' + item.key + '\')">⚑ Flag as mistranslation</button></div>' +
-        '<div class="correction-area" id="ca-' + item.key + '">' +
-          '<label>ORIGINAL (Korean or English phrase that was wrong)</label>' +
-          '<input type="text" id="ko-' + item.key + '" placeholder="e.g. 백종원의 골목식당" />' +
-          '<label>CORRECT ENGLISH</label>' +
-          '<textarea id="en-' + item.key + '">' + esc(item.english) + '</textarea>' +
-          '<label>NOTE (optional)</label>' +
-          '<input type="text" id="note-' + item.key + '" placeholder="e.g. pastor uses this phrase often" />' +
-          '<button class="btn-save" onclick="saveCorrection(\'' + item.key + '\')">✓ Save to Library</button>' +
-        '</div>';
-      el.appendChild(div);
-    });
-  });
-
-  function flagItem(key) {
-    var ca = $('ca-' + key), ri = $('ri-' + key);
-    ca.classList.toggle('open');
-    ri.classList.toggle('flagged', ca.classList.contains('open'));
-  }
-
-  function saveCorrection(key) {
-    var korean  = $('ko-' + key).value.trim();
-    var english = $('en-' + key).value.trim();
-    var note    = $('note-' + key).value.trim();
-    if (!english) { alert('Please enter the correct English translation.'); return; }
-    libraryRef.push({ korean: korean || '', english: english, note: note, savedAt: firebase.database.ServerValue.TIMESTAMP });
-    var ri = $('ri-' + key);
-    ri.classList.remove('flagged'); ri.classList.add('saved');
-    $('ca-' + key).classList.remove('open');
-    var btn = ri.querySelector('.btn-flag');
-    btn.textContent = '✓ Saved'; btn.disabled = true; btn.style.background = '#27ae60';
-  }
-
-  function renderLibrary() {
-    var el = $('library-list');
-    var entries = Object.entries(library);
-    if (!entries.length) { el.innerHTML = '<div id="lib-empty">No corrections saved yet.</div>'; return; }
-    el.innerHTML = '';
-    entries.slice().reverse().forEach(function (pair) {
-      var k = pair[0], v = pair[1];
-      var div = document.createElement('div');
-      div.className = 'lib-item';
-      div.innerHTML =
-        '<div class="lib-item-text">' +
-          (v.korean ? '<div class="lib-korean">' + esc(v.korean) + '</div>' : '') +
-          '<div class="lib-english">' + esc(v.english) + '</div>' +
-          (v.note ? '<div class="lib-note">' + esc(v.note) + '</div>' : '') +
-        '</div>' +
-        '<button class="btn-delete" onclick="deleteLib(\'' + k + '\')" title="Delete">✕</button>';
-      el.appendChild(div);
-    });
-  }
-
-  function deleteLib(key) { if (confirm('Remove this entry?')) libraryRef.child(key).remove(); }
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-}
-
-// ── VIEWER MODE ───────────────────────────────────────────────────────────────
-if (!isOperator && !isReview) {
+// ── VIEWER ───────────────────────────────────────────────────────────────────
+if (!isOperator) {
   document.addEventListener('DOMContentLoaded', function () {
-    ['controls','error-box','interim-text','debug-badge'].forEach(function (id) {
-      var el = $(id); if (el) el.style.display = 'none';
-    });
+    $('controls').style.display = 'none';
+    $('error-box').style.display = 'none';
+    $('streaming-line').style.display = 'none';
+    $('interim-text').style.display = 'none';
+    $('debug-badge').style.display = 'none';
     var seenKeys = new Set();
     translationsRef.limitToLast(10).once('value', function (snap) {
       snap.forEach(function (child) {
         seenKeys.add(child.key);
-        if (child.val() && child.val().text) displayFinalLine(child.val().text, true);
+        var it = child.val();
+        if (it && it.text) displayFinalLine(it.text, true);
       });
       translationsRef.on('child_added', function (snap) {
         if (seenKeys.has(snap.key)) return;
         seenKeys.add(snap.key);
-        if (snap.val() && snap.val().text) displayFinalLine(snap.val().text, true);
+        var it = snap.val();
+        if (it && it.text) displayFinalLine(it.text, true);
       });
     });
     translationsRef.on('value', function (snap) {
@@ -261,28 +123,27 @@ if (!isOperator && !isReview) {
   });
 }
 
-// ── OPERATOR STATE ────────────────────────────────────────────────────────────
-var rec              = null;
-var recNext          = null;
-var isListening      = false;
-var silenceTimer     = null;
-var forceCommitTimer = null;
-var watchdogTimer    = null;
-var proactiveTimer   = null;
-var isTranslating    = false;
-var translationQueue = [];
-var historyLog       = [];
-var firstCommitDone  = false;
-var fullTranscript   = '';
-var cursor           = 0;
-var lastFirebaseKey  = null;
-var lastActivityTime = 0;
+// ── OPERATOR STATE ───────────────────────────────────────────────────────────
+var rec                  = null;
+var isListening          = false;
+var silenceTimer         = null;
+var forceCommitTimer     = null;
+var watchdogTimer        = null;
+var isTranslating        = false;
+var translationQueue     = [];
+var historyLog           = [];
+var autoSermonContext    = '';
+var contextUpdateCounter = 0;
+var fullTranscript       = '';
+var cursor               = 0;
+var lastFirebaseKey      = null;
+var lastActivityTime     = 0;
 
-// ── UI HELPERS ────────────────────────────────────────────────────────────────
+// ── UI HELPERS ───────────────────────────────────────────────────────────────
 function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
 function clearError()   { $('error-box').style.display = 'none'; }
 function setStatus(msg, cls) { $('status').textContent = msg; $('status').className = cls || ''; }
-function dbg(msg) { $('debug-badge').textContent = msg; }
+function dbg(msg) { var el = $('debug-badge'); if (el) el.textContent = msg; }
 
 function toggleFullscreen() {
   if (!document.fullscreenElement) { document.documentElement.requestFullscreen(); $('controls').style.display = 'none'; }
@@ -293,7 +154,8 @@ function reclassLines() {
   var all = $('translation-lines').querySelectorAll('.tline');
   all.forEach(function (el, i) {
     el.classList.remove('newest', 'oldest');
-    el.classList.add(all.length - 1 - i <= 2 ? 'newest' : 'oldest');
+    if (all.length - 1 - i <= 2) el.classList.add('newest');
+    else el.classList.add('oldest');
   });
 }
 
@@ -311,7 +173,7 @@ function displayFinalLine(text, skipFirebase) {
     }, 200);
     if (!skipFirebase && lastFirebaseKey) translationsRef.child(lastFirebaseKey).update({ text: merged });
     reclassLines();
-    return;
+    return lastLine;
   }
   var div = document.createElement('div');
   div.className = 'tline newest';
@@ -319,29 +181,43 @@ function displayFinalLine(text, skipFirebase) {
   linesEl.appendChild(div);
   while (linesEl.children.length > MAX_LINES) linesEl.removeChild(linesEl.firstChild);
   reclassLines();
+  return div;
+}
+
+function pushHistory(text) {
+  historyLog.push(text);
+  if (historyLog.length > 8) historyLog.shift();
+}
+
+function setStreamingText(text) {
+  var el = $('streaming-line'), t = $('streaming-text'), cur = $('streaming-cursor');
+  if (!text) { el.classList.add('empty'); t.textContent = ''; cur.style.display = 'none'; }
+  else { $('placeholder').style.display = 'none'; el.classList.remove('empty'); t.textContent = text; cur.style.display = 'inline-block'; }
 }
 
 function clearTranslations() {
   translationsRef.remove();
   $('translation-lines').innerHTML = '';
-  $('placeholder').style.display = 'block';
+  setStreamingText('');
   fullTranscript = ''; cursor = 0;
   lastFirebaseKey = null;
   translationQueue = [];
-  historyLog = [];
+  autoSermonContext = '';
+  contextUpdateCounter = 0;
+  $('placeholder').style.display = 'block';
 }
 
-// ── SPEECH RECOGNITION ────────────────────────────────────────────────────────
-function toggleListening() { isListening ? stopListening() : startListening(); }
+// ── SPEECH RECOGNITION ───────────────────────────────────────────────────────
+function toggleListening() { if (isListening) stopListening(); else startListening(); }
 
 function startListening() {
   clearError();
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { showError('Please use Google Chrome.'); return; }
   isListening = true;
-  fullTranscript = ''; cursor = 0;
+  fullTranscript = '';
+  cursor = 0;
   translationQueue = [];
-  firstCommitDone = false;
   lastActivityTime = Date.now();
   $('startBtn').textContent = '■ Stop';
   $('startBtn').classList.add('active');
@@ -351,14 +227,107 @@ function startListening() {
   startWatchdog();
 }
 
+function startWatchdog() {
+  clearInterval(watchdogTimer);
+  watchdogTimer = setInterval(function () {
+    if (!isListening) { clearInterval(watchdogTimer); return; }
+    if (Date.now() - lastActivityTime > 5000) {
+      dbg('watchdog restart');
+      if (rec) { try { rec.onend = null; rec.stop(); } catch (e) {} rec = null; }
+      fullTranscript = ''; cursor = 0;
+      lastActivityTime = Date.now();
+      setTimeout(spawnRec, 150);
+    }
+  }, 3000);
+}
+
+function scheduleForceCommit() {
+  clearTimeout(forceCommitTimer);
+  forceCommitTimer = setTimeout(function forceNext() {
+    if (!isListening) return;
+    var unsent = fullTranscript.slice(cursor).trim();
+    if (unsent) commitTranslation();
+    else forceCommitTimer = setTimeout(forceNext, FORCE_COMMIT_MS);
+  }, FORCE_COMMIT_MS);
+}
+
+function spawnRec() {
+  if (!isListening) return;
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  rec = new SR();
+  rec.lang = 'ko-KR';
+  rec.continuous = true;
+  rec.interimResults = true;
+  scheduleForceCommit();
+
+  rec.onresult = function (e) {
+    lastActivityTime = Date.now();
+    var full = '';
+    var interimText = '';
+    for (var i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) full += e.results[i][0].transcript;
+      else interimText += e.results[i][0].transcript;
+    }
+    fullTranscript = (full + interimText).trim();
+
+    var unsent = fullTranscript.slice(cursor).trim();
+    $('interim-text').textContent = interimText
+      ? '"' + interimText.trim() + '"'
+      : (unsent ? '"' + unsent + '"' : '');
+    dbg('len:' + fullTranscript.length + ' cursor:' + cursor + ' unsent:' + unsent.length + ' q:' + translationQueue.length);
+
+    if (!unsent) return;
+    clearTimeout(silenceTimer);
+    if (unsent.length >= MAX_CHARS) { commitTranslation(); return; }
+    silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
+  };
+
+  rec.onerror = function (e) {
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
+  };
+
+  rec.onend = function () {
+    lastActivityTime = Date.now();
+    if (!isListening) return;
+    var unsent = fullTranscript.slice(cursor).trim();
+    if (unsent) enqueueTranslation(unsent);
+    fullTranscript = ''; cursor = 0;
+    clearTimeout(silenceTimer); silenceTimer = null;
+    clearTimeout(forceCommitTimer); forceCommitTimer = null;
+    setTimeout(spawnRec, 150);
+  };
+
+  try { rec.start(); } catch (e) {}
+}
+
+function commitTranslation() {
+  clearTimeout(silenceTimer); silenceTimer = null;
+  var unsent = fullTranscript.slice(cursor).trim();
+  if (!unsent) return;
+  cursor = fullTranscript.length;
+  $('interim-text').textContent = '';
+  scheduleForceCommit();
+  enqueueTranslation(unsent);
+}
+
+function enqueueTranslation(text) {
+  if (!text || text.trim().length < 10) return;
+  translationQueue.push(text);
+  processQueue();
+}
+
+function processQueue() {
+  if (isTranslating || translationQueue.length === 0) return;
+  triggerTranslation(translationQueue.shift());
+}
+
 function stopListening() {
   isListening = false;
   clearTimeout(silenceTimer);     silenceTimer = null;
   clearTimeout(forceCommitTimer); forceCommitTimer = null;
   clearInterval(watchdogTimer);   watchdogTimer = null;
-  clearTimeout(proactiveTimer);   proactiveTimer = null;
-  if (recNext) { try { recNext.onend = null; recNext.abort(); } catch (e) {} recNext = null; }
-  if (rec)     { try { rec.onend = null; rec.stop(); } catch (e) {} rec = null; }
+  if (rec) { try { rec.onend = null; rec.stop(); } catch (e) {} rec = null; }
   $('startBtn').textContent = '▶ Start';
   $('startBtn').classList.remove('active');
   $('mic-indicator').classList.remove('active');
@@ -367,215 +336,118 @@ function stopListening() {
   setStatus('Stopped');
 }
 
-function startWatchdog() {
-  clearInterval(watchdogTimer);
-  watchdogTimer = setInterval(function () {
-    if (!isListening) { clearInterval(watchdogTimer); return; }
-    if (Date.now() - lastActivityTime > 5000) {
-      dbg('watchdog restart');
-      if (rec) { try { rec.onend = null; rec.stop(); } catch (e) {} rec = null; }
-      var unsent = fullTranscript.slice(cursor).trim();
-      if (unsent) enqueueTranslation(unsent);
-      fullTranscript = ''; cursor = 0;
-      lastActivityTime = Date.now();
-      setTimeout(spawnRec, 50);
+// ── AUTO CONTEXT BUILDER ─────────────────────────────────────────────────────
+function updateSermonContext() {
+  contextUpdateCounter++;
+  if (contextUpdateCounter % 4 !== 0) return;
+  var recentLines = historyLog.slice(-6).join(' ');
+  if (!recentLines) return;
+  fetch(WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 80,
+      stream: false,
+      system: 'You are summarizing a live sermon for use as translation context. '
+        + 'Given the recent translated lines, write a single short sentence (max 20 words) '
+        + 'describing the current topic, speaker situation, and any key context that would help '
+        + 'interpret ambiguous colloquial Korean phrases. Be specific and factual. No preamble.',
+      messages: [{ role: 'user', content: 'Recent sermon lines:\n' + recentLines + '\n\nSummarize the current context in one short sentence.' }]
+    })
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    if (d && d.content && d.content[0]) {
+      autoSermonContext = d.content[0].text.trim();
+      dbg('ctx: ' + autoSermonContext.slice(0, 50));
     }
-  }, 2000);
+  }).catch(function () {});
 }
 
-function spawnRec() {
-  if (!isListening) return;
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  function preWarmNext() {
-    if (!isListening || recNext) return;
-    var next = new SR();
-    next.lang = 'ko-KR'; next.continuous = true; next.interimResults = true;
-    next.onend   = function () { if (recNext === next) recNext = null; };
-    next.onerror = function () { if (recNext === next) recNext = null; };
-    try { next.start(); recNext = next; } catch (e) { recNext = null; }
-  }
-
-  function scheduleProactive() {
-    clearTimeout(proactiveTimer);
-    proactiveTimer = setTimeout(function () {
-      if (!isListening) return;
-      dbg('proactive swap');
-      var unsent = fullTranscript.slice(cursor).trim();
-      var incoming = recNext || new SR();
-      recNext = null;
-      attachHandlers(incoming);
-      try { incoming.start(); } catch (e) {}
-      var old = rec; rec = incoming;
-      if (old) { try { old.onend = null; old.stop(); } catch (e) {} }
-      fullTranscript = unsent; cursor = 0;
-      scheduleProactive();
-      scheduleForceCommit();
-    }, PROACTIVE_MS);
-  }
-
-  function attachHandlers(r) {
-    r.lang = 'ko-KR'; r.continuous = true; r.interimResults = true;
-
-    r.onresult = function (e) {
-      if (r !== rec) return;
-      lastActivityTime = Date.now();
-      var full = '', interim = '';
-      for (var i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) full += e.results[i][0].transcript;
-        else interim += e.results[i][0].transcript;
-      }
-      fullTranscript = (full + interim).trim();
-      var unsent = fullTranscript.slice(cursor).trim();
-      $('interim-text').textContent = unsent ? '"' + unsent + '"' : '';
-      dbg('len:' + fullTranscript.length + ' unsent:' + unsent.length + ' q:' + translationQueue.length);
-      if (!unsent) return;
-      clearTimeout(silenceTimer);
-      if (unsent.length >= MAX_CHARS) { commitTranslation(); return; }
-      silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
-    };
-
-    r.onerror = function (e) {
-      if (r !== rec) return;
-      if (e.error === 'no-speech' || e.error === 'aborted') return;
-      if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
-    };
-
-    r.onend = function () {
-      if (r !== rec) return;
-      lastActivityTime = Date.now();
-      if (!isListening) return;
-      var unsent = fullTranscript.slice(cursor).trim();
-      if (unsent) enqueueTranslation(unsent);
-      fullTranscript = ''; cursor = 0;
-      clearTimeout(silenceTimer);     silenceTimer = null;
-      clearTimeout(forceCommitTimer); forceCommitTimer = null;
-      setTimeout(spawnRec, 50);
-    };
-  }
-
-  var r = new SR();
-  attachHandlers(r);
-  rec = r;
-  try { r.start(); } catch (e) {}
-  scheduleForceCommit();
-  scheduleProactive();
-  setTimeout(preWarmNext, PROACTIVE_MS - 2000);
-}
-
-function scheduleForceCommit() {
-  clearTimeout(forceCommitTimer);
-  forceCommitTimer = setTimeout(function forceNext() {
-    if (!isListening) return;
-    if (fullTranscript.slice(cursor).trim()) commitTranslation();
-    else forceCommitTimer = setTimeout(forceNext, FORCE_COMMIT_MS);
-  }, FORCE_COMMIT_MS);
-}
-
-function commitTranslation() {
-  clearTimeout(silenceTimer); silenceTimer = null;
-  var unsent = fullTranscript.slice(cursor).trim();
-  if (!unsent) return;
-  cursor = fullTranscript.length;
-  firstCommitDone = true;
-  $('interim-text').textContent = '';
-  scheduleForceCommit();
-  enqueueTranslation(unsent);
-}
-
-function enqueueTranslation(text) {
-  if (!text || text.trim().length < 10) return;
-  translationQueue.push(text.trim());
-  processQueue();
-}
-
-function processQueue() {
-  if (isTranslating || translationQueue.length === 0) return;
-  triggerTranslation(translationQueue.shift(), 0);
-}
-
-// ── LIBRARY ───────────────────────────────────────────────────────────────────
-var cachedLibrary = [];
-libraryRef.on('value', function (snap) {
-  cachedLibrary = Object.values(snap.val() || {});
-});
-
-function buildLibraryContext() {
-  if (!cachedLibrary.length) return '';
-  var entries = cachedLibrary.slice(-20).map(function (e) {
-    var line = '• ' + (e.korean ? e.korean + ' → ' : '') + e.english;
-    if (e.note) line += ' (' + e.note + ')';
-    return line;
-  }).join('\n');
-  return 'Correction library — known phrases and proper nouns for this pastor:\n' + entries + '\n\n';
-}
-
-// ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
-var SYSTEM_PROMPT =
-  'You are a professional live interpreter for a Korean Christian worship service. ' +
-  'Your primary goal is accuracy — translate the full meaning and intent of everything the speaker said, ' +
-  'including all references, illustrations, scripture citations, rhetorical questions, and repeated phrases. ' +
-  'Do not simplify, condense, or omit anything. Every idea, clause, and thought must be present. ' +
-  'Render the translation in natural, fluent English that flows seamlessly from the previous translation. ' +
-  'Match the tone, register, and style of the previous translation so the output reads as one continuous interpretation. ' +
-  'Use precise theological vocabulary where appropriate ' +
-  '(e.g. sanctification, justification, atonement, covenant, redemption, grace, sovereignty). ' +
-  'Preserve the speaker\'s tone — whether urgent, gentle, celebratory, or solemn. ' +
-  'Infer implied grammatical subjects from context when Korean omits them, but add nothing beyond what was said. ' +
-  'When the Korean uses a person\'s name, always use that name — never substitute it with a pronoun. ' +
-  'Only use a pronoun if the Korean itself used a pronoun. ' +
-  'When the speaker references a proper noun — a person\'s name, TV program, book, or cultural reference — ' +
-  'preserve it by name. Translate into English where a natural translation exists (e.g. 골목식당 = "Alley Restaurant"). ' +
-  'Only romanize if there is no meaningful English translation. ' +
-  'The input comes from live speech recognition and may begin mid-sentence — ' +
-  'start from the first complete thought and end at a natural sentence boundary. ' +
-  'Correct misheared Korean Bible-related terms: 성경=Bible, 성경책=Bible, ' +
-  '창세기=Genesis, 출애굽기=Exodus, 레위기=Leviticus, 민수기=Numbers, 신명기=Deuteronomy, ' +
-  '여호수아=Joshua, 사사기=Judges, 룻기=Ruth, 사무엘=Samuel, 열왕기=Kings, 역대=Chronicles, ' +
-  '에스라=Ezra, 느헤미야=Nehemiah, 에스더=Esther, 욥기=Job, 시편=Psalms, 잠언=Proverbs, ' +
-  '전도서=Ecclesiastes, 이사야=Isaiah, 예레미야=Jeremiah, 에스겔=Ezekiel, 다니엘=Daniel, ' +
-  '마태복음=Matthew, 마가복음=Mark, 누가복음=Luke, 요한복음=John, 사도행전=Acts, ' +
-  '로마서=Romans, 고린도=Corinthians, 갈라디아=Galatians, 에베소=Ephesians, ' +
-  '빌립보=Philippians, 골로새=Colossians, 데살로니가=Thessalonians, 디모데=Timothy, ' +
-  '디도=Titus, 빌레몬=Philemon, 히브리서=Hebrews, 야고보서=James, 베드로=Peter, ' +
-  '요한서=John (epistle), 유다서=Jude, 요한계시록=Revelation. ' +
-  'If the input is genuinely unintelligible, respond with a single space. ' +
-  'Respond with ONLY the translation — no commentary, no explanation.';
-
-// ── TRANSLATION ───────────────────────────────────────────────────────────────
-async function triggerTranslation(text, attempt) {
+// ── TRANSLATION ──────────────────────────────────────────────────────────────
+async function triggerTranslation(text) {
   isTranslating = true;
   setStatus('Translating…', 'translating');
+  clearError();
 
-  var controller = new AbortController();
-  var timeout = setTimeout(function () { controller.abort(); }, REQUEST_TIMEOUT);
+  var safetyTimeout = setTimeout(function () {
+    if (!isTranslating) return;
+    isTranslating = false;
+    setStatus('🎤 Listening…', 'listening');
+    dbg('safety timeout fired');
+    processQueue();
+  }, 30000);
+
+  // Secondary unlock — if queue is stuck after 35s, force reset
+  var unlockTimeout = setTimeout(function () {
+    if (isTranslating) {
+      isTranslating = false;
+      dbg('force unlocked');
+      processQueue();
+    }
+  }, 35000);
 
   var manualTopic = $('sermonContext').value.trim();
-  var userContent =
-    (manualTopic ? 'Sermon topic: ' + manualTopic + '\n\n' : '') +
-    buildLibraryContext() +
-    (historyLog.length
-      ? 'Recent translations (for context and flow):\n' +
-        historyLog.slice(-6).map(function (h) { return '• ' + h; }).join('\n') + '\n\n' +
-        'The previous translation ended with: "' + historyLog[historyLog.length - 1] + '"\n' +
-        'Your translation should flow naturally from this.\n\n'
-      : '') +
-    'Translate:\n' + text;
+  var topicLine   = manualTopic ? 'Sermon topic: ' + manualTopic + '\n\n' : '';
+  var contextLine = autoSermonContext ? 'Running sermon context (use to interpret ambiguous phrases): ' + autoSermonContext + '\n\n' : '';
+  var historyStr  = historyLog.length
+    ? 'Previous lines for context only (do not extend or continue them):\n'
+      + historyLog.slice(-3).map(function (h) { return 'EN: ' + h; }).join('\n') + '\n\n'
+    : '';
+
+  var systemPrompt =
+    'You are a live interpreter for a Korean Christian worship service. '
+    + 'Translate the full meaning of what was said into natural, faithful English. '
+    + 'The input may begin mid-sentence due to live audio chunking — if so, begin your translation '
+    + 'from the first complete word or thought in the input, and always end at a natural sentence '
+    + 'or clause boundary, never mid-thought. '
+    + 'Do not add or expand beyond what was spoken, but never omit or skip entire sentences or thoughts — '
+    + 'every complete idea the speaker expressed must appear in the translation. '
+    + 'Pay close attention to colloquial and conversational Korean — informal phrasing, negations, '
+    + 'and implied subjects must be rendered accurately. '
+    + 'When colloquial expressions are ambiguous, use the sermon context and prior lines to interpret '
+    + 'the most natural meaning rather than a literal one. '
+    + 'Preserve the tone and theological weight of what was said. '
+    + 'Use standard English Bible vocabulary for theological terms '
+    + '(e.g. grace, redemption, sanctification, covenant). '
+    + 'Infer omitted grammatical subjects only when Korean grammar requires it, '
+    + 'but never add content beyond what was spoken. '
+    + 'Speech recognition often mishears Korean Bible book names — correct them using context '
+    + '(e.g. 사사기=Judges, 열왕기=Kings, 이사야=Isaiah).\n\n'
+    + 'IMPORTANT: Never output "..." or any placeholder. Always translate what was said, even filler '
+    + 'words or transitional expressions (e.g. 아/음/그/네 → "Yes" / "And" / omit gracefully). '
+    + 'If the input is genuinely unintelligible noise, respond with a single space " ". '
+    + 'Never skip or omit a response.\n\n'
+    + 'Common Korean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) '
+    + '신명기(Deuteronomy) 여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) '
+    + '열왕기상하(1-2Kings) 역대상하(1-2Chronicles) 에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) '
+    + '욥기(Job) 시편(Psalms) 잠언(Proverbs) 전도서(Ecclesiastes) 이사야(Isaiah) 예레미야(Jeremiah) '
+    + '에스겔(Ezekiel) 다니엘(Daniel) 마태복음(Matthew) 마가복음(Mark) 누가복음(Luke) 요한복음(John) '
+    + '사도행전(Acts) 로마서(Romans) 고린도전후서(1-2Corinthians) 갈라디아서(Galatians) '
+    + '에베소서(Ephesians) 빌립보서(Philippians) 골로새서(Colossians) 히브리서(Hebrews) '
+    + '야고보서(James) 요한계시록(Revelation)\n\n'
+    + 'Respond with ONLY the translation, nothing else.';
 
   try {
     var res = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
       body: JSON.stringify({
-        model: MODEL, max_tokens: 600, stream: false,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userContent }]
+        model: MODEL,
+        max_tokens: 500,
+        stream: false,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: topicLine + contextLine + historyStr + 'Translate:\n' + text }]
       })
     });
 
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    clearTimeout(safetyTimeout);
+    clearTimeout(unlockTimeout);
+
+    if (!res.ok) {
+      var errData = await res.json();
+      showError('API error: ' + (errData && errData.error ? errData.error.message : 'HTTP ' + res.status));
+      isTranslating = false; processQueue(); return;
+    }
 
     var data = await res.json();
     var result = data && data.content && data.content[0] ? data.content[0].text.trim() : null;
@@ -583,39 +455,40 @@ async function triggerTranslation(text, attempt) {
     if (result && /^[\s.…]+$/.test(result)) result = null;
     if (result && /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(result)) result = null;
 
+    // Trim to last complete sentence — never end on a comma, dash, or incomplete fragment
     if (result) {
-      var lastStop = Math.max(result.lastIndexOf('.'), result.lastIndexOf('!'), result.lastIndexOf('?'));
-      if (lastStop > 0 && lastStop > result.length * 0.3) result = result.slice(0, lastStop + 1).trim();
-      else result = result.replace(/[\s,\-–—]+$/, '').trim();
+      var lastStop = Math.max(
+        result.lastIndexOf('.'),
+        result.lastIndexOf('!'),
+        result.lastIndexOf('?')
+      );
+      if (lastStop > 0 && lastStop > result.length * 0.3) {
+        result = result.slice(0, lastStop + 1).trim();
+      } else {
+        // No sentence boundary found — strip trailing punctuation like commas and dashes
+        result = result.replace(/[\s,\-–—]+$/, '').trim();
+      }
     }
 
     if (result) {
-      try {
-        var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
-        if (newRef) lastFirebaseKey = newRef.key;
-      } catch (fbErr) { dbg('firebase err: ' + fbErr.message); }
+      var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
+      lastFirebaseKey = newRef.key;
       displayFinalLine(result, true);
-      historyLog.push(result);
-      if (historyLog.length > 8) historyLog.shift();
+      pushHistory(result);
+      updateSermonContext();
     }
 
     isTranslating = false;
     setStatus('🎤 Listening…', 'listening');
-    dbg('done | q:' + translationQueue.length);
+    dbg('done | q:' + translationQueue.length + (autoSermonContext ? ' | ctx ok' : ''));
     processQueue();
 
   } catch (err) {
-    clearTimeout(timeout);
-    if (attempt < MAX_RETRIES) {
-      dbg('retry ' + (attempt + 1) + '/' + MAX_RETRIES);
-      isTranslating = false;
-      setTimeout(function () { triggerTranslation(text, attempt + 1); }, 1000);
-    } else {
-      if (err.name !== 'AbortError') showError('Network error: ' + err.message);
-      dbg('gave up after ' + MAX_RETRIES + ' retries');
-      isTranslating = false;
-      processQueue();
-    }
+    clearTimeout(safetyTimeout);
+    clearTimeout(unlockTimeout);
+    if (err.name !== 'AbortError') showError('Network error: ' + err.message);
+    isTranslating = false;
+    processQueue();
   }
 }
 </script>
