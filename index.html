@@ -25,11 +25,11 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 #error-box { display: none; background: #1a0000; border: 1px solid #500; border-radius: 8px; padding: 10px 16px; font-size: 12px; color: #ff6b6b; margin: 6px 20px; font-family: monospace; word-break: break-all; flex-shrink: 0; }
 
 /* ── DISPLAY ── */
-#display { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 24px 40px; position: relative; overflow: hidden; }
-#placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #2a2a2a; pointer-events: none; }
+#display { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 24px 40px; position: relative; overflow: hidden; min-height: 0; }
+#placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #2a2a2a; pointer-events: none; width: 100%; }
 #placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
 #translation-box { position: relative; z-index: 1; width: 100%; max-width: 1200px; text-align: center; }
-#translation-lines { display: flex; flex-direction: column-reverse; gap: 24px; margin-bottom: 12px; }
+#translation-lines { display: flex; flex-direction: column; gap: 24px; margin-bottom: 12px; }
 .tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); transition: color 0.8s, opacity 0.8s; }
 .tline.newest { color: #ffffff; }
 .tline.oldest  { color: #555555; }
@@ -118,7 +118,7 @@ var SILENCE_MS      = 5000;
 var FORCE_COMMIT_MS = 8000;
 var MAX_CHARS       = 500;
 var MAX_LINES       = 5;
-var SHORT_LINE_CHARS = 120;
+var SHORT_LINE_CHARS = 0;
 var MAX_RETRIES     = 2;
 var REQUEST_TIMEOUT = 20000;
 var PROACTIVE_MS    = 25000;
@@ -323,11 +323,24 @@ function reclassLines() {
 function displayFinalLine(text, skipFirebase) {
   $('placeholder').style.display = 'none';
   var linesEl = $('translation-lines');
+  var lastLine = linesEl.lastChild;
+  if (lastLine && lastLine.classList.contains('tline') && lastLine.textContent.length < SHORT_LINE_CHARS) {
+    var merged = lastLine.textContent + ' ' + text;
+    lastLine.style.opacity = '0.5';
+    setTimeout(function () {
+      if (!lastLine || !lastLine.parentNode) return;
+      lastLine.textContent = merged;
+      lastLine.style.opacity = '1';
+    }, 200);
+    if (!skipFirebase && lastFirebaseKey) translationsRef.child(lastFirebaseKey).update({ text: merged });
+    reclassLines();
+    return;
+  }
   var div = document.createElement('div');
   div.className = 'tline newest';
   div.textContent = text;
-  linesEl.insertBefore(div, linesEl.firstChild);
-  while (linesEl.children.length > MAX_LINES) linesEl.removeChild(linesEl.lastChild);
+  linesEl.appendChild(div);
+  while (linesEl.children.length > MAX_LINES) linesEl.removeChild(linesEl.firstChild);
   reclassLines();
 }
 
