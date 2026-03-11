@@ -117,7 +117,6 @@ var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
 var MODEL            = 'claude-haiku-4-5-20251001';
 var SILENCE_MS       = 6000;
 var FORCE_COMMIT_MS  = 15000;
-var MAX_QUEUE        = 2;  // drop oldest chunks if queue backs up beyond this
 var MAX_CHARS        = 500;
 var MAX_LINES        = 5;
 var SHORT_LINE_CHARS = 0;
@@ -487,11 +486,6 @@ function commitTranslation() {
 function enqueueTranslation(text) {
   if (!text || text.trim().length < 10) return;
   translationQueue.push(text.trim());
-  // If queue is backing up, drop oldest chunks to stay close to live
-  while (translationQueue.length > MAX_QUEUE) {
-    dbg('queue full — dropping oldest chunk');
-    translationQueue.shift();
-  }
   processQueue();
 }
 
@@ -545,7 +539,8 @@ var SYSTEM_PROMPT =
   'Only romanize if there is no meaningful English translation. ' +
   'For Korean cultural references unfamiliar to English speakers, give the translated English name ' +
   'followed by a brief parenthetical if it aids understanding (e.g. "Baek Jong-won\'s Alley Restaurant (a TV program helping struggling restaurants)"). ' +
-  'Infer implied grammatical subjects from context when Korean omits them, but add nothing beyond what was said. ' +
+  'When the Korean uses a person\'s name, always use that name in the English translation — never substitute it with a pronoun like "he" or "she". ' +
+  'Only use a pronoun if the Korean itself used a pronoun. '
   'The input comes from live speech recognition and may begin or end mid-sentence. ' +
   'Translate exactly what is given — do not pad, expand, repeat, or infer content that is not in the input. ' +
   'If the input starts mid-sentence, begin the translation mid-sentence. ' +
