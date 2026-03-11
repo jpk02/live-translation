@@ -231,9 +231,12 @@ function startWatchdog() {
   clearInterval(watchdogTimer);
   watchdogTimer = setInterval(function () {
     if (!isListening) { clearInterval(watchdogTimer); return; }
-    if (Date.now() - lastActivityTime > 5000) {
+    if (Date.now() - lastActivityTime > 8000) {
       dbg('watchdog restart');
       if (rec) { try { rec.onend = null; rec.stop(); } catch (e) {} rec = null; }
+      // Flush anything accumulated before the silent death
+      var unsent = fullTranscript.slice(cursor).trim();
+      if (unsent) enqueueTranslation(unsent);
       fullTranscript = ''; cursor = 0;
       lastActivityTime = Date.now();
       setTimeout(spawnRec, 150);
