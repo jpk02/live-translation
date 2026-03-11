@@ -68,7 +68,8 @@
 // ── CONFIG ───────────────────────────────────────────────────────────────────
 var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
 var MODEL            = 'claude-sonnet-4-6';  // pin — update manually if needed
-var SILENCE_MS       = 6000;    // ms of silence before committing a chunk
+var SILENCE_MS       = 6000;
+var INITIAL_DELAY_MS = 3000;  // extra delay before the very first commit to let recognizer stabilize    // ms of silence before committing a chunk
 var MAX_CHARS        = 500;     // effectively disabled — silence + force commit drive timing
 var FORCE_COMMIT_MS  = 17000;   // hard commit every N ms during continuous speech
 var MAX_LINES        = 5;       // max lines visible on screen
@@ -137,6 +138,7 @@ var fullTranscript       = '';
 var cursor               = 0;
 var lastFirebaseKey      = null;
 var lastActivityTime     = 0;
+var firstCommitDone      = false;  // tracks whether the first commit has fired
 
 // ── UI HELPERS ───────────────────────────────────────────────────────────────
 function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
@@ -216,6 +218,7 @@ function startListening() {
   isListening = true;
   fullTranscript = ''; cursor = 0;
   translationQueue = [];
+  firstCommitDone = false;
   lastActivityTime = Date.now();
   $('startBtn').textContent = '■ Stop';
   $('startBtn').classList.add('active');
@@ -275,7 +278,9 @@ function spawnRec() {
     if (!unsent) return;
     clearTimeout(silenceTimer);
     if (unsent.length >= MAX_CHARS) { commitTranslation(); return; }
-    silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
+    // Add extra delay before the very first commit so the recognizer can fully stabilize
+    var delay = (!firstCommitDone) ? SILENCE_MS + INITIAL_DELAY_MS : SILENCE_MS;
+    silenceTimer = setTimeout(commitTranslation, delay);
   };
 
   rec.onerror = function (e) {
@@ -302,6 +307,7 @@ function commitTranslation() {
   var unsent = fullTranscript.slice(cursor).trim();
   if (!unsent) return;
   cursor = fullTranscript.length;
+  firstCommitDone = true;
   $('interim-text').textContent = '';
   scheduleForceCommit();
   enqueueTranslation(unsent);
