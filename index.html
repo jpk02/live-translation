@@ -73,7 +73,7 @@ var MAX_CHARS        = 500;
 var FORCE_COMMIT_MS  = 20000;
 var PROACTIVE_MS     = 25000;
 var MAX_LINES        = 5;
-var SHORT_LINE_CHARS = 120;
+var BUFFER_FLUSH_MS  = 9000;  // wait longer than a typical translation round-trip
 
 // ── FIREBASE ─────────────────────────────────────────────────────────────────
 var firebaseConfig = {
@@ -246,7 +246,7 @@ function bufferResult(result) {
     flushBuffer();
   } else {
     clearTimeout(flushTimer);
-    flushTimer = setTimeout(flushBuffer, 5000);
+    flushTimer = setTimeout(flushBuffer, BUFFER_FLUSH_MS);
   }
 }
   $('placeholder').style.display = 'none';
