@@ -507,7 +507,7 @@ function updateSermonContext() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: MODEL, max_tokens: 80, stream: false,
+      model: MODEL, max_tokens: 80, stream: false, temperature: 0,
       system: 'You are summarizing a live sermon for use as translation context. '
         + 'Given the recent translated lines, write a single short sentence (max 20 words) '
         + 'describing the current topic, speaker situation, and any key context that would help '
@@ -599,7 +599,7 @@ async function triggerTranslation(text) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: MODEL, max_tokens: 600, stream: false,
+        model: MODEL, max_tokens: 600, stream: false, temperature: 0,
         system: systemPrompt,
         messages: [{ role: 'user', content: topicLine + contextLine + historyStr + 'Translate:\n' + text }]
       })
