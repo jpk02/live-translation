@@ -153,6 +153,7 @@ if (!isOperator) {
     $('streaming-line').style.display = 'none';
     $('interim-text').style.display   = 'none';
     $('debug-badge').style.display    = 'none';
+    $('mic-indicator').style.display  = 'none';
 
     var seenKeys = new Set();
 
@@ -164,7 +165,7 @@ if (!isOperator) {
       }
     });
 
-          translationsRef.limitToLast(500).once('value', function(snap) {
+    translationsRef.limitToLast(500).once('value', function(snap) {
       snap.forEach(function(child) {
         seenKeys.add(child.key);
         var it = child.val();
@@ -243,7 +244,6 @@ function exportTranslations() {
     btn.textContent = '✓ Copied!';
     setTimeout(function() { btn.textContent = '⬇ Export'; }, 2000);
   }).catch(function() {
-    // Fallback for browsers that block clipboard
     var ta = document.createElement('textarea');
     ta.value = text;
     document.body.appendChild(ta);
