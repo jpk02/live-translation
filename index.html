@@ -166,6 +166,46 @@ var cursor           = 0;
 var lastFirebaseKey  = null;
 var lastActivityTime = 0;
 
+// ── DISPLAY BUFFER ────────────────────────────────────────────────────────────
+// Holds the pending paragraph text and a timer. If another chunk arrives
+// within BUFFER_MS, it merges silently. Only after the timer fires does
+// the paragraph actually render to the screen.
+var BUFFER_MS      = 4000;
+var bufferText     = null;
+var bufferTimer    = null;
+var pendingFragment = '';  // incomplete sentence carried forward
+
+function flushBuffer() {
+  if (!bufferText) return;
+  var text = bufferText;
+  bufferText  = null;
+  bufferTimer = null;
+  // Push to Firebase now that the paragraph is fully assembled
+  var newRef = translationsRef.push({ text: text, timestamp: firebase.database.ServerValue.TIMESTAMP });
+  lastFirebaseKey = newRef.key;
+  renderParagraph(text);
+  pushHistory(text);
+  updateSermonContext();
+}
+
+function bufferTranslation(text) {
+  if (bufferText) {
+    // Another chunk arrived — merge if still short, else flush old and start new
+    if (bufferText.length < 300) {
+      clearTimeout(bufferTimer);
+      bufferText  = bufferText + ' ' + text;
+      bufferTimer = setTimeout(flushBuffer, BUFFER_MS);
+    } else {
+      flushBuffer();
+      bufferText  = text;
+      bufferTimer = setTimeout(flushBuffer, BUFFER_MS);
+    }
+  } else {
+    bufferText  = text;
+    bufferTimer = setTimeout(flushBuffer, BUFFER_MS);
+  }
+}
+
 // ── UI HELPERS ────────────────────────────────────────────────────────────────
 function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
 function clearError()   { $('error-box').style.display = 'none'; }
@@ -199,24 +239,9 @@ function ensurePunctuation(text) {
   return text + '.';
 }
 
-function displayFinalLine(text, skipFirebase) {
+function renderParagraph(text) {
   $('placeholder').style.display = 'none';
-  var linesEl  = $('translation-lines');
-  var lastLine = linesEl.lastChild;
-
-  if (lastLine && lastLine.classList.contains('tline') && lastLine.textContent.length < 300) {
-    var merged = lastLine.textContent + ' ' + text;
-    lastLine.style.opacity = '0.5';
-    setTimeout(function() {
-      if (!lastLine || !lastLine.parentNode) { return; }
-      lastLine.textContent   = merged;
-      lastLine.style.opacity = '1';
-    }, 200);
-    if (!skipFirebase && lastFirebaseKey) { translationsRef.child(lastFirebaseKey).update({ text: merged }); }
-    reclassLines();
-    return lastLine;
-  }
-
+  var linesEl = $('translation-lines');
   var div = document.createElement('div');
   div.className   = 'tline newest';
   div.textContent = text;
@@ -224,6 +249,16 @@ function displayFinalLine(text, skipFirebase) {
   while (linesEl.children.length > MAX_LINES) { linesEl.removeChild(linesEl.firstChild); }
   reclassLines();
   return div;
+}
+
+function displayFinalLine(text, skipFirebase) {
+  if (skipFirebase) {
+    // Viewer path — render immediately (already final from Firebase)
+    renderParagraph(text);
+    return;
+  }
+  // Operator path — buffer before rendering
+  bufferTranslation(text);
 }
 
 function pushHistory(text) {
@@ -244,6 +279,7 @@ function clearTranslations() {
   fullTranscript = ''; cursor = 0;
   lastFirebaseKey = null;
   translationQueue = [];
+  pendingFragment  = '';
   autoSermonContext = '';
   contextUpdateCounter = 0;
   $('placeholder').style.display = 'block';
@@ -397,7 +433,10 @@ function commitTranslation() {
 
 function enqueueTranslation(text) {
   if (!text || text.trim().length < 10) return;
-  translationQueue.push(text);
+  // Prepend any carried-over fragment from the previous chunk
+  var combined = pendingFragment ? pendingFragment + ' ' + text : text;
+  pendingFragment = '';
+  translationQueue.push(combined);
   processQueue();
 }
 
@@ -572,11 +611,15 @@ async function triggerTranslation(text) {
     }
 
     if (result) {
-      var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
-      lastFirebaseKey = newRef.key;
-      displayFinalLine(result, true);
-      pushHistory(result);
-      updateSermonContext();
+      // Check if result ends with a complete sentence
+      var isComplete = /[.!?]"?$/.test(result);
+      if (!isComplete) {
+        // Hold as a fragment — prepend to next translation chunk
+        pendingFragment = result;
+        dbg('fragment held: ' + result.slice(0, 40));
+      } else {
+        displayFinalLine(result, false);
+      }
     }
 
     isTranslating = false;
