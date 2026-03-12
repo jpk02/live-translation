@@ -41,6 +41,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 </style>
 </head>
 <body>
+
 <div id="controls">
   <label style="font-size:13px;color:#888;">Sermon topic:</label>
   <input type="text" id="sermonContext" placeholder="e.g. John 3:16, faith, grace" />
@@ -70,10 +71,9 @@ var MODEL           = 'claude-sonnet-4-6';
 var SILENCE_MS      = 8000;
 var MAX_CHARS       = 500;
 var FORCE_COMMIT_MS = 20000;
-var PROACTIVE_MS    = 25000;   // proactive mic swap interval
+var PROACTIVE_MS    = 25000;
 var MAX_LINES       = 5;
 var SHORT_LINE_CHARS = 120;
-
 
 // ── FIREBASE ─────────────────────────────────────────────────────────────────
 var firebaseConfig = {
@@ -87,116 +87,95 @@ var firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-var db             = firebase.database();
-var auth           = firebase.auth();
+var db              = firebase.database();
+var auth            = firebase.auth();
 var translationsRef = db.ref('translations');
-var isOperator     = window.location.search.includes('operator');
+var isOperator      = window.location.search.includes('operator');
 
 function $(id) { return document.getElementById(id); }
 
-// ── ANONYMOUS AUTH (both operator and viewer) ─────────────────────────────────
+// ── ANONYMOUS AUTH ────────────────────────────────────────────────────────────
 auth.signInAnonymously().catch(function(err) {
   if (isOperator) showError('Auth error: ' + err.message);
-  else console.warn('Auth error:', err.message);
 });
 
-// ── VIEWER ───────────────────────────────────────────────────────────────────
-function initViewer() {
-  $('controls').style.display       = 'none';
-  $('error-box').style.display      = 'none';
-  $('streaming-line').style.display = 'none';
-  $('interim-text').style.display   = 'none';
-  $('debug-badge').style.display    = 'none';
-
-  var seenKeys = new Set();
-
-  // Attach the clear-screen listener independently
-  translationsRef.on('value', function(snap) {
-    if (!snap.val()) {
-      $('translation-lines').innerHTML = '';
-      $('placeholder').style.display   = 'block';
-      seenKeys.clear();
-    }
-  });
-
-  // Load existing lines, then watch for new ones
-  translationsRef.limitToLast(10).once('value', function(snap) {
-    snap.forEach(function(child) {
-      seenKeys.add(child.key);
-      var it = child.val();
-      if (it && it.text) displayFinalLine(it.text, true);
-    });
-
-    translationsRef.on('child_added', function(snap) {
-      if (seenKeys.has(snap.key)) return;
-      seenKeys.add(snap.key);
-      var it = snap.val();
-      if (it && it.text) displayFinalLine(it.text, true);
-    });
-  });
-}
-
-// For the viewer, wait for both DOM ready AND auth before calling initViewer
+// ── VIEWER ────────────────────────────────────────────────────────────────────
 if (!isOperator) {
   var domReady  = false;
   var authReady = false;
-  var authUser  = null;
 
   function maybeInitViewer() {
-    if (domReady && authReady && authUser) initViewer();
+    if (!domReady || !authReady) return;
+
+    $('controls').style.display       = 'none';
+    $('error-box').style.display      = 'none';
+    $('streaming-line').style.display = 'none';
+    $('interim-text').style.display   = 'none';
+    $('debug-badge').style.display    = 'none';
+
+    var seenKeys = new Set();
+
+    translationsRef.on('value', function(snap) {
+      if (!snap.val()) {
+        $('translation-lines').innerHTML = '';
+        $('placeholder').style.display   = 'block';
+        seenKeys.clear();
+      }
+    });
+
+    translationsRef.limitToLast(10).once('value', function(snap) {
+      snap.forEach(function(child) {
+        seenKeys.add(child.key);
+        var it = child.val();
+        if (it && it.text) displayFinalLine(it.text, true);
+      });
+      translationsRef.on('child_added', function(snap) {
+        if (seenKeys.has(snap.key)) return;
+        seenKeys.add(snap.key);
+        var it = snap.val();
+        if (it && it.text) displayFinalLine(it.text, true);
+      });
+    });
   }
 
-  document.addEventListener('DOMContentLoaded', function() {
-    domReady = true;
-    maybeInitViewer();
-  });
-
-  auth.onAuthStateChanged(function(user) {
-    authReady = true;
-    authUser  = user;
-    maybeInitViewer();
-  });
-} else {
-  // Operator: just log auth state, DOM is already ready by script execution time
-  auth.onAuthStateChanged(function(user) {
-    if (user) dbg('auth:' + user.uid.slice(0, 8));
-  });
+  document.addEventListener('DOMContentLoaded', function() { domReady = true; maybeInitViewer(); });
+  auth.onAuthStateChanged(function(user) { if (user) { authReady = true; maybeInitViewer(); } });
 }
 
-// ── OPERATOR STATE ───────────────────────────────────────────────────────────
-var rec             = null;
-var recNext         = null;   // pre-warmed instance
-var isListening     = false;
-var silenceTimer    = null;
+// ── OPERATOR STATE ────────────────────────────────────────────────────────────
+var rec              = null;
+var recNext          = null;
+var isListening      = false;
+var silenceTimer     = null;
 var forceCommitTimer = null;
-var watchdogTimer   = null;
-var proactiveTimer  = null;
-var isTranslating   = false;
+var watchdogTimer    = null;
+var proactiveTimer   = null;
+var isTranslating    = false;
 var translationQueue = [];
-var historyLog      = [];
+var historyLog       = [];
 var autoSermonContext = '';
 var contextUpdateCounter = 0;
-var fullTranscript  = '';
-var cursor          = 0;
-var lastFirebaseKey = null;
+var fullTranscript   = '';
+var cursor           = 0;
+var lastFirebaseKey  = null;
 var lastActivityTime = 0;
 
-// ── UI HELPERS ───────────────────────────────────────────────────────────────
-function showError(msg) { $('error-box').style.display='block'; $('error-box').textContent=msg; setStatus('Error','error'); }
-function clearError()   { $('error-box').style.display='none'; }
-function setStatus(msg,cls) { $('status').textContent=msg; $('status').className=cls||''; }
-function dbg(msg)       { var el=$('debug-badge'); if(el) el.textContent=msg; }
+// ── UI HELPERS ────────────────────────────────────────────────────────────────
+function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
+function clearError()   { $('error-box').style.display = 'none'; }
+function setStatus(msg, cls) { $('status').textContent = msg; $('status').className = cls || ''; }
+function dbg(msg) { var el = $('debug-badge'); if (el) el.textContent = msg; }
 
 function toggleFullscreen() {
-  if (!document.fullscreenElement) { document.documentElement.requestFullscreen(); $('controls').style.display='none'; }
-  else { document.exitFullscreen(); $('controls').style.display='flex'; }
+  if (!document.fullscreenElement) { document.documentElement.requestFullscreen(); $('controls').style.display = 'none'; }
+  else { document.exitFullscreen(); $('controls').style.display = 'flex'; }
 }
 
 function reclassLines() {
   var all = $('translation-lines').querySelectorAll('.tline');
-  all.forEach(function(el,i) {
-    el.classList.remove('newest','oldest');
-    if (all.length-1-i <= 2) el.classList.add('newest');
+  all.forEach(function(el, i) {
+    el.classList.remove('newest', 'oldest');
+    if (all.length - 1 - i <= 2) el.classList.add('newest');
     else el.classList.add('oldest');
   });
 }
@@ -211,7 +190,7 @@ function displayFinalLine(text, skipFirebase) {
     lastLine.style.opacity = '0.5';
     setTimeout(function() {
       if (!lastLine || !lastLine.parentNode) return;
-      lastLine.textContent  = merged;
+      lastLine.textContent   = merged;
       lastLine.style.opacity = '1';
     }, 200);
     if (!skipFirebase && lastFirebaseKey) translationsRef.child(lastFirebaseKey).update({ text: merged });
@@ -234,27 +213,24 @@ function pushHistory(text) {
 }
 
 function setStreamingText(text) {
-  var el=_$('streaming-line'), t=$('streaming-text'), cur=$('streaming-cursor');
-  if (!text) { el.classList.add('empty'); t.textContent=''; cur.style.display='none'; }
-  else { $('placeholder').style.display='none'; el.classList.remove('empty'); t.textContent=text; cur.style.display='inline-block'; }
+  var el = $('streaming-line'), t = $('streaming-text'), cur = $('streaming-cursor');
+  if (!text) { el.classList.add('empty'); t.textContent = ''; cur.style.display = 'none'; }
+  else { $('placeholder').style.display = 'none'; el.classList.remove('empty'); t.textContent = text; cur.style.display = 'inline-block'; }
 }
-
-// tiny helper to avoid shadowing the global $
-function _$(id) { return document.getElementById(id); }
 
 function clearTranslations() {
   translationsRef.remove();
   $('translation-lines').innerHTML = '';
   setStreamingText('');
-  fullTranscript=''; cursor=0;
-  lastFirebaseKey=null;
-  translationQueue=[];
-  autoSermonContext='';
-  contextUpdateCounter=0;
-  $('placeholder').style.display='block';
+  fullTranscript = ''; cursor = 0;
+  lastFirebaseKey = null;
+  translationQueue = [];
+  autoSermonContext = '';
+  contextUpdateCounter = 0;
+  $('placeholder').style.display = 'block';
 }
 
-// ── SPEECH RECOGNITION ───────────────────────────────────────────────────────
+// ── SPEECH RECOGNITION ────────────────────────────────────────────────────────
 function toggleListening() { if (isListening) stopListening(); else startListening(); }
 
 function startListening() {
@@ -278,7 +254,7 @@ function startListening() {
   scheduleProactiveSwap();
 }
 
-// ── PROACTIVE MIC SWAP ───────────────────────────────────────────────────────
+// ── PROACTIVE MIC SWAP ────────────────────────────────────────────────────────
 function scheduleProactiveSwap() {
   clearTimeout(proactiveTimer);
   proactiveTimer = setTimeout(doProactiveSwap, PROACTIVE_MS);
@@ -286,39 +262,31 @@ function scheduleProactiveSwap() {
 
 function doProactiveSwap() {
   if (!isListening) return;
-
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return;
-
   dbg('proactive swap');
 
-  // Commit anything unsent before swapping
   var unsent = fullTranscript.slice(cursor).trim();
   if (unsent) commitTranslation();
 
-  // Pre-warm next instance
   recNext = new SR();
-  recNext.lang          = 'ko-KR';
-  recNext.continuous    = true;
+  recNext.lang           = 'ko-KR';
+  recNext.continuous     = true;
   recNext.interimResults = true;
   wireRecHandlers(recNext);
 
-  // Gracefully stop current; onend will NOT restart (we pass control to recNext)
-  if (rec) {
-    try { rec.onend = null; rec.stop(); } catch(e) {}
-    rec = null;
-  }
+  if (rec) { try { rec.onend = null; rec.stop(); } catch(e) {} rec = null; }
 
-  // Small gap to let the browser release the mic, then activate pre-warmed instance
   setTimeout(function() {
     if (!isListening) return;
     rec     = recNext;
     recNext = null;
-    fullTranscript = ''; cursor = 0;
+    fullTranscript   = '';
+    cursor           = 0;
     lastActivityTime = Date.now();
     try { rec.start(); } catch(e) {}
     scheduleForceCommit();
-    scheduleProactiveSwap();   // schedule the next proactive swap
+    scheduleProactiveSwap();
   }, 150);
 }
 
@@ -328,8 +296,9 @@ function startWatchdog() {
     if (!isListening) { clearInterval(watchdogTimer); return; }
     if (Date.now() - lastActivityTime > 5000) {
       dbg('watchdog restart');
-      if (rec) { try { rec.onend=null; rec.stop(); } catch(e) {} rec=null; }
-      fullTranscript=''; cursor=0;
+      if (rec) { try { rec.onend = null; rec.stop(); } catch(e) {} rec = null; }
+      fullTranscript   = '';
+      cursor           = 0;
       lastActivityTime = Date.now();
       setTimeout(spawnRec, 150);
     }
@@ -349,8 +318,8 @@ function scheduleForceCommit() {
 function wireRecHandlers(r) {
   r.onresult = function(e) {
     lastActivityTime = Date.now();
-    var full='', interimText='';
-    for (var i=0; i<e.results.length; i++) {
+    var full = '', interimText = '';
+    for (var i = 0; i < e.results.length; i++) {
       if (e.results[i].isFinal) full += e.results[i][0].transcript;
       else interimText += e.results[i][0].transcript;
     }
@@ -361,7 +330,7 @@ function wireRecHandlers(r) {
       ? '"' + interimText.trim() + '"'
       : (unsent ? '"' + unsent + '"' : '');
 
-    dbg('len:'+fullTranscript.length+' cursor:'+cursor+' unsent:'+unsent.length+' q:'+translationQueue.length);
+    dbg('len:' + fullTranscript.length + ' cursor:' + cursor + ' unsent:' + unsent.length + ' q:' + translationQueue.length);
 
     if (!unsent) return;
     clearTimeout(silenceTimer);
@@ -370,8 +339,8 @@ function wireRecHandlers(r) {
   };
 
   r.onerror = function(e) {
-    if (e.error==='no-speech' || e.error==='aborted') return;
-    if (e.error==='not-allowed') { showError('Microphone access denied.'); stopListening(); }
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
   };
 
   r.onend = function() {
@@ -379,9 +348,9 @@ function wireRecHandlers(r) {
     if (!isListening) return;
     var unsent = fullTranscript.slice(cursor).trim();
     if (unsent) enqueueTranslation(unsent);
-    fullTranscript=''; cursor=0;
-    clearTimeout(silenceTimer);   silenceTimer=null;
-    clearTimeout(forceCommitTimer); forceCommitTimer=null;
+    fullTranscript = ''; cursor = 0;
+    clearTimeout(silenceTimer);    silenceTimer    = null;
+    clearTimeout(forceCommitTimer); forceCommitTimer = null;
     setTimeout(spawnRec, 150);
   };
 }
@@ -399,7 +368,7 @@ function spawnRec() {
 }
 
 function commitTranslation() {
-  clearTimeout(silenceTimer); silenceTimer=null;
+  clearTimeout(silenceTimer); silenceTimer = null;
   var unsent = fullTranscript.slice(cursor).trim();
   if (!unsent) return;
   cursor = fullTranscript.length;
@@ -415,32 +384,32 @@ function enqueueTranslation(text) {
 }
 
 function processQueue() {
-  if (isTranslating || translationQueue.length===0) return;
+  if (isTranslating || translationQueue.length === 0) return;
   triggerTranslation(translationQueue.shift());
 }
 
 function stopListening() {
   isListening = false;
-  clearTimeout(silenceTimer);    silenceTimer=null;
-  clearTimeout(forceCommitTimer); forceCommitTimer=null;
-  clearTimeout(proactiveTimer);   proactiveTimer=null;
-  clearInterval(watchdogTimer);   watchdogTimer=null;
+  clearTimeout(silenceTimer);     silenceTimer     = null;
+  clearTimeout(forceCommitTimer); forceCommitTimer = null;
+  clearTimeout(proactiveTimer);   proactiveTimer   = null;
+  clearInterval(watchdogTimer);   watchdogTimer    = null;
 
-  if (rec)     { try { rec.onend=null; rec.stop(); }     catch(e) {} rec=null; }
-  if (recNext) { try { recNext.onend=null; recNext.stop(); } catch(e) {} recNext=null; }
+  if (rec)     { try { rec.onend     = null; rec.stop();     } catch(e) {} rec     = null; }
+  if (recNext) { try { recNext.onend = null; recNext.stop(); } catch(e) {} recNext = null; }
 
   $('startBtn').textContent = '▶ Start';
   $('startBtn').classList.remove('active');
   $('mic-indicator').classList.remove('active');
   $('interim-text').textContent = '';
-  fullTranscript=''; cursor=0;
+  fullTranscript = ''; cursor = 0;
   setStatus('Stopped');
 }
 
-// ── AUTO CONTEXT BUILDER ─────────────────────────────────────────────────────
+// ── AUTO CONTEXT BUILDER ──────────────────────────────────────────────────────
 function updateSermonContext() {
   contextUpdateCounter++;
-  if (contextUpdateCounter % 3 !== 0) return;   // every 3rd translation (was 4)
+  if (contextUpdateCounter % 3 !== 0) return;
 
   var recentLines = historyLog.slice(-6).join(' ');
   if (!recentLines) return;
@@ -449,46 +418,50 @@ function updateSermonContext() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: MODEL,
+      model:      MODEL,
       max_tokens: 80,
-      stream: false,
+      stream:     false,
       system: 'You are summarizing a live sermon for use as translation context. '
         + 'Given the recent translated lines, write a single short sentence (max 20 words) '
         + 'describing the current topic, speaker situation, and any key context that would help '
         + 'interpret ambiguous colloquial Korean phrases. Be specific and factual. No preamble.',
-      messages: [{ role:'user', content:'Recent sermon lines:\n'+recentLines+'\n\nSummarize the current context in one short sentence.' }]
+      messages: [{ role: 'user', content: 'Recent sermon lines:\n' + recentLines + '\n\nSummarize the current context in one short sentence.' }]
     })
-  }).then(function(r){ return r.json(); }).then(function(d){
+  }).then(function(r) { return r.json(); }).then(function(d) {
     if (d && d.content && d.content[0]) {
       autoSermonContext = d.content[0].text.trim();
-      dbg('ctx: '+autoSermonContext.slice(0,50));
+      dbg('ctx: ' + autoSermonContext.slice(0, 50));
     }
-  }).catch(function(){});
+  }).catch(function() {});
 }
 
-// ── TRANSLATION WITH RETRY ────────────────────────────────────────────────────
-async function triggerTranslation(text, attempt) {
-  attempt = attempt || 1;
+// ── TRANSLATION ───────────────────────────────────────────────────────────────
+async function triggerTranslation(text) {
   isTranslating = true;
   setStatus('Translating...', 'translating');
   clearError();
 
-  // Safety unlock — if something goes wrong, never stay locked more than 25s
   var safetyTimeout = setTimeout(function() {
     if (!isTranslating) return;
     isTranslating = false;
     setStatus('🎤 Listening...', 'listening');
-    dbg('safety unlock');
+    dbg('safety timeout fired');
     processQueue();
-  }, 25000);
+  }, 30000);
 
-  var activeModel = MODEL;
-  var topicLine    = manualTopic ? 'Sermon topic: ' + manualTopic + '\n\n' : '';
-  var contextLine  = autoSermonContext ? 'Running sermon context (use to interpret ambiguous phrases): ' + autoSermonContext + '\n\n' : '';
-  // Send last 8 history lines (up from 3) with connector instruction
-  var historyStr   = historyLog.length
+  var unlockTimeout = setTimeout(function() {
+    if (!isTranslating) return;
+    isTranslating = false;
+    dbg('force unlocked');
+    processQueue();
+  }, 35000);
+
+  var manualTopic = $('sermonContext').value.trim();
+  var topicLine   = manualTopic ? 'Sermon topic: ' + manualTopic + '\n\n' : '';
+  var contextLine = autoSermonContext ? 'Running sermon context (use to interpret ambiguous phrases): ' + autoSermonContext + '\n\n' : '';
+  var historyStr  = historyLog.length
     ? 'Previous lines for context (do not extend or repeat them):\n'
-      + historyLog.slice(-8).map(function(h){ return 'EN: '+h; }).join('\n')
+      + historyLog.slice(-8).map(function(h) { return 'EN: ' + h; }).join('\n')
       + '\n\nIf the new chunk continues the thought from the last line above, begin with a natural connector (e.g. "And", "So", "But", "Because") rather than restarting a new sentence cold.\n\n'
     : '';
 
@@ -513,8 +486,6 @@ async function triggerTranslation(text, attempt) {
     + 'but never add content beyond what was spoken. '
     + 'Speech recognition often mishears Korean Bible book names — correct them using context '
     + '(e.g. 사사기=Judges, 열왕기=Kings, 이사야=Isaiah).\n\n'
-
-    // ── PROPER NOUN RULES (v90) ──
     + 'PROPER NOUNS: '
     + 'Always use a person\'s name exactly as spoken — never substitute a pronoun (he/she/they) '
     + 'when the speaker used the person\'s name. '
@@ -525,7 +496,6 @@ async function triggerTranslation(text, attempt) {
     + '(e.g. 서울 → "Seoul", 예수님 → "Jesus", 하나님 → "God"). '
     + 'Do not invent anglicizations for names with no standard English form — '
     + 'keep the Korean romanization in that case.\n\n'
-
     + 'IMPORTANT: Never output "…" or any placeholder. Always translate what was said, even filler '
     + 'words or transitional expressions (e.g. 아/음/그/네 → "Yes" / "And" / omit gracefully). '
     + 'If the input is genuinely unintelligible noise, respond with a single space " ". '
@@ -545,19 +515,23 @@ async function triggerTranslation(text, attempt) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model:      activeModel,
-        max_tokens: 600,           // bumped from 500
+        model:      MODEL,
+        max_tokens: 600,
         stream:     false,
         system:     systemPrompt,
-        messages: [{ role:'user', content: topicLine + contextLine + historyStr + 'Translate:\n' + text }]
+        messages: [{ role: 'user', content: topicLine + contextLine + historyStr + 'Translate:\n' + text }]
       })
     });
 
     clearTimeout(safetyTimeout);
+    clearTimeout(unlockTimeout);
 
     if (!res.ok) {
-      var errData = await res.json().catch(function(){ return {}; });
-      throw new Error('API error: ' + (errData && errData.error ? errData.error.message : 'HTTP '+res.status));
+      var errData = await res.json().catch(function() { return {}; });
+      showError('API error: ' + (errData && errData.error ? errData.error.message : 'HTTP ' + res.status));
+      isTranslating = false;
+      processQueue();
+      return;
     }
 
     var data   = await res.json();
@@ -566,11 +540,10 @@ async function triggerTranslation(text, attempt) {
     if (result && /^[\s\.…]+$/.test(result)) result = null;
     if (result && /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(result)) result = null;
 
-    // Trim to last complete sentence
     if (result) {
       var lastStop = Math.max(result.lastIndexOf('.'), result.lastIndexOf('!'), result.lastIndexOf('?'));
       if (lastStop > 0 && lastStop > result.length * 0.3) {
-        result = result.slice(0, lastStop+1).trim();
+        result = result.slice(0, lastStop + 1).trim();
       } else {
         result = result.replace(/[\s,\-–—]+$/, '').trim();
       }
@@ -584,18 +557,16 @@ async function triggerTranslation(text, attempt) {
       updateSermonContext();
     }
 
-    clearTimeout(safetyTimeout);
     isTranslating = false;
     setStatus('🎤 Listening...', 'listening');
-    dbg('done | q:'+translationQueue.length+(autoSermonContext?' | ctx ok':''));
+    dbg('done | q:' + translationQueue.length + (autoSermonContext ? ' | ctx ok' : ''));
     processQueue();
 
   } catch(err) {
     clearTimeout(safetyTimeout);
-    // No retries — just move on immediately so the queue never stalls
-    if (err.name !== 'AbortError') showError(err.message || ('Network error: '+err));
+    clearTimeout(unlockTimeout);
+    if (err.name !== 'AbortError') showError('Network error: ' + err.message);
     isTranslating = false;
-    setStatus('🎤 Listening...', 'listening');
     processQueue();
   }
 }
