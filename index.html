@@ -85,7 +85,7 @@ var SILENCE_MS       = 12000;
 var MAX_CHARS        = 500;
 var FORCE_COMMIT_MS  = 20000;
 var PROACTIVE_MS     = 25000;
-var MAX_LINES        = 50;
+var MAX_LINES        = 500;
 var isNearBottom     = true;
 
 // ── FIREBASE ─────────────────────────────────────────────────────────────────
@@ -164,7 +164,7 @@ if (!isOperator) {
       }
     });
 
-    translationsRef.limitToLast(50).once('value', function(snap) {
+          translationsRef.limitToLast(500).once('value', function(snap) {
       snap.forEach(function(child) {
         seenKeys.add(child.key);
         var it = child.val();
