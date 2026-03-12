@@ -67,8 +67,6 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 // ── CONFIG ───────────────────────────────────────────────────────────────────
 var WORKER_URL      = 'https://live-translation.pauljkim22.workers.dev';
 var MODEL           = 'claude-sonnet-4-6';
-var MODEL_FAST      = 'claude-haiku-4-5-20251001'; // used when queue is backed up
-var MAX_QUEUE       = 2;   // drop oldest chunks if queue exceeds this
 var SILENCE_MS      = 8000;
 var MAX_CHARS       = 500;
 var FORCE_COMMIT_MS = 20000;
@@ -469,14 +467,13 @@ function updateSermonContext() {
 }
 
 // ── TRANSLATION WITH RETRY ────────────────────────────────────────────────────
-async function triggerTranslation(text, attempt, queueDepth) {
-  attempt    = attempt    || 1;
-  queueDepth = queueDepth || 0;
+async function triggerTranslation(text, attempt) {
+  attempt = attempt || 1;
   isTranslating = true;
   setStatus('Translating...', 'translating');
   clearError();
 
-  var activeModel = queueDepth >= 1 ? MODEL_FAST : MODEL;
+  var activeModel = MODEL;
   var topicLine    = manualTopic ? 'Sermon topic: ' + manualTopic + '\n\n' : '';
   var contextLine  = autoSermonContext ? 'Running sermon context (use to interpret ambiguous phrases): ' + autoSermonContext + '\n\n' : '';
   // Send last 8 history lines (up from 3) with connector instruction
@@ -585,7 +582,7 @@ async function triggerTranslation(text, attempt, queueDepth) {
     if (attempt < MAX_RETRIES + 1) {
       dbg('retry '+attempt+'/'+MAX_RETRIES);
       await new Promise(function(r){ setTimeout(r, 1000); });
-      return triggerTranslation(text, attempt + 1, queueDepth);
+      return triggerTranslation(text, attempt + 1);
     }
     // All retries exhausted
     if (err.name !== 'AbortError') showError(err.message || ('Network error: '+err));
