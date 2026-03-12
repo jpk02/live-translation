@@ -144,8 +144,12 @@ if (!isOperator) {
   auth.onAuthStateChanged(function(user) { authReady = true; authUser = user; maybeInitViewer(); });
 
 } else {
+  var operatorAuthReady = false;
   auth.onAuthStateChanged(function(user) {
-    if (user) dbg('auth:' + user.uid.slice(0, 8));
+    if (user) {
+      operatorAuthReady = true;
+      dbg('auth:' + user.uid.slice(0, 8));
+    }
   });
 }
 
@@ -191,8 +195,15 @@ function reclassLines() {
 function ensurePunctuation(text) {
   if (!text) return text;
   text = text.trim();
-  if (/[.!?]"?$/.test(text)) return text;
-  if (text.endsWith('"')) return text.slice(0, -1) + '."';
+  // Balance quotation marks
+  var opens  = (text.match(/"/g) || []).length;
+  var closes = (text.match(/"/g) || []).length;
+  var straight = (text.match(/"/g) || []).length;
+  if (opens > closes) text = text + '\u201d';
+  if (straight % 2 !== 0) text = text + '"';
+  // Ensure ending punctuation
+  if (/[.!?]"?\u201d?$/.test(text)) return text;
+  if (text.endsWith('\u201d') || text.endsWith('"')) return text.slice(0, -1) + '."';
   return text + '.';
 }
 
@@ -559,7 +570,7 @@ async function triggerTranslation(text) {
 
     if (result) {
       var lastStop = Math.max(result.lastIndexOf('.'), result.lastIndexOf('!'), result.lastIndexOf('?'));
-      if (lastStop > 0 && lastStop > result.length * 0.3) {
+      if (lastStop > 0 && lastStop > result.length * 0.6) {
         result = result.slice(0, lastStop + 1).trim();
       } else {
         result = result.replace(/[\s,\-–—]+$/, '').trim();
@@ -568,6 +579,12 @@ async function triggerTranslation(text) {
     }
 
     if (result) {
+      if (!operatorAuthReady) {
+        // Auth not ready yet — requeue and retry shortly
+        setTimeout(function() { triggerTranslation(result); }, 500);
+        isTranslating = false;
+        return;
+      }
       var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
       lastFirebaseKey = newRef.key;
       displayFinalLine(result, true);
