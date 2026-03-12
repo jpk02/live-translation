@@ -23,7 +23,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 #error-box { display: none; background: #1a0000; border: 1px solid #500; border-radius: 8px; padding: 10px 16px; font-size: 12px; color: #ff6b6b; margin: 6px 20px; font-family: monospace; word-break: break-all; flex-shrink: 0; }
 
 /* Scroll container */
-#display { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 40px 40px 24px; position: relative; scroll-behavior: smooth; }
+#display { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 40px 40px 24px; position: relative; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
 #display::-webkit-scrollbar { width: 4px; }
 #display::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
 
