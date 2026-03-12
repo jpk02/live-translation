@@ -31,7 +31,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 #placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
 
 #translation-box { width: 100%; max-width: 1200px; margin: 0 auto; text-align: center; padding-bottom: 40px; display: flex; flex-direction: column; justify-content: flex-end; min-height: 100%; }
-#translation-lines { display: flex; flex-direction: column; gap: 36px; padding-top: 70vh; }
+#translation-lines { display: flex; flex-direction: column; gap: 36px; }
 
 .tline {
   font-size: clamp(18px, 2.5vw, 36px);
@@ -138,6 +138,13 @@ function $(id) { return document.getElementById(id); }
 
 // ── SCROLL TRACKING ───────────────────────────────────────────────────────────
 var displayEl = $('display');
+
+function setTopSpacer() {
+  var linesEl = $('translation-lines');
+  linesEl.style.paddingTop = displayEl.clientHeight * 0.7 + 'px';
+}
+setTopSpacer();
+window.addEventListener('resize', setTopSpacer);
 displayEl.addEventListener('scroll', function() {
   var threshold = 80;
   isNearBottom = displayEl.scrollHeight - displayEl.scrollTop - displayEl.clientHeight < threshold;
