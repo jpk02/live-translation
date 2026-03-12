@@ -100,23 +100,26 @@ auth.signInAnonymously().catch(function(err) {
   else console.warn('Auth error:', err.message);
 });
 
-auth.onAuthStateChanged(function(user) {
-  if (user) {
-    dbg('auth:' + user.uid.slice(0,8));
-    if (!isOperator) initViewer();
-  }
-});
-
 // ── VIEWER ───────────────────────────────────────────────────────────────────
 function initViewer() {
-  $('controls').style.display    = 'none';
-  $('error-box').style.display   = 'none';
+  $('controls').style.display       = 'none';
+  $('error-box').style.display      = 'none';
   $('streaming-line').style.display = 'none';
   $('interim-text').style.display   = 'none';
   $('debug-badge').style.display    = 'none';
 
   var seenKeys = new Set();
 
+  // Attach the clear-screen listener independently
+  translationsRef.on('value', function(snap) {
+    if (!snap.val()) {
+      $('translation-lines').innerHTML = '';
+      $('placeholder').style.display   = 'block';
+      seenKeys.clear();
+    }
+  });
+
+  // Load existing lines, then watch for new ones
   translationsRef.limitToLast(10).once('value', function(snap) {
     snap.forEach(function(child) {
       seenKeys.add(child.key);
@@ -131,21 +134,32 @@ function initViewer() {
       if (it && it.text) displayFinalLine(it.text, true);
     });
   });
-
-  translationsRef.on('value', function(snap) {
-    if (!snap.val()) {
-      $('translation-lines').innerHTML = '';
-      $('placeholder').style.display   = 'block';
-      seenKeys.clear();
-    }
-  });
 }
 
-// Run viewer immediately if not operator (auth callback handles it above,
-// but guard for cases where auth resolves before DOMContentLoaded)
+// For the viewer, wait for both DOM ready AND auth before calling initViewer
 if (!isOperator) {
+  var domReady  = false;
+  var authReady = false;
+  var authUser  = null;
+
+  function maybeInitViewer() {
+    if (domReady && authReady && authUser) initViewer();
+  }
+
   document.addEventListener('DOMContentLoaded', function() {
-    // initViewer() will be called by onAuthStateChanged; nothing extra needed
+    domReady = true;
+    maybeInitViewer();
+  });
+
+  auth.onAuthStateChanged(function(user) {
+    authReady = true;
+    authUser  = user;
+    maybeInitViewer();
+  });
+} else {
+  // Operator: just log auth state, DOM is already ready by script execution time
+  auth.onAuthStateChanged(function(user) {
+    if (user) dbg('auth:' + user.uid.slice(0, 8));
   });
 }
 
