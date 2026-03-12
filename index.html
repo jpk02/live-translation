@@ -1,4 +1,9 @@
-<!DOCTYPE html>
+function insertParagraphBreak() {
+  // Flush any pending buffer first
+  if (pendingBuffer) {
+    var toDisplay = pendingBuffer;
+    pendingBuffer = '';
+    var newRef = translationsRef.push({ text:<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -25,10 +30,10 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 #placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: #2a2a2a; pointer-events: none; }
 #placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
 #translation-box { width: 100%; max-width: 1200px; text-align: center; }
-#translation-lines { display: flex; flex-direction: column; gap: 14px; margin-bottom: 12px; }
+#translation-lines { display: flex; flex-direction: column; gap: 28px; margin-bottom: 12px; }
 .tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); overflow: hidden; transition: color 0.8s, opacity 0.8s; }
 .tline.newest { color: #ffffff; }
-.tline.oldest { color: #555555; }
+.tbreak { height: 24px; flex-shrink: 0; }
 #streaming-line { font-size: clamp(18px,2.5vw,36px); line-height: 1.4; color: #aaaaaa; text-shadow: 0 2px 20px rgba(0,0,0,0.8); min-height: 1.4em; transition: opacity 0.3s; }
 #streaming-line.empty { opacity: 0; }
 #streaming-cursor { display: inline-block; width: 3px; height: 0.85em; background: #aaaaaa; vertical-align: text-bottom; margin-left: 3px; animation: blink 0.7s infinite; }
@@ -46,6 +51,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
   <label style="font-size:13px;color:#888;">Sermon topic:</label>
   <input type="text" id="sermonContext" placeholder="e.g. John 3:16, faith, grace" />
   <button id="startBtn" onclick="toggleListening()">▶ Start</button>
+  <button id="breakBtn" onclick="insertParagraphBreak()" style="background:#555;color:#ccc;">¶ Break</button>
   <button id="clearBtn" onclick="clearTranslations()" style="background:#555;color:#ccc;">⌫ Clear</button>
   <span id="status">Ready</span>
   <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
@@ -166,6 +172,7 @@ var fullTranscript   = '';
 var cursor           = 0;
 var lastFirebaseKey  = null;
 var lastActivityTime = 0;
+var pendingBuffer    = '';   // holds short translations until they're long enough
 
 // ── UI HELPERS ────────────────────────────────────────────────────────────────
 function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
@@ -191,19 +198,6 @@ function displayFinalLine(text, skipFirebase) {
   $('placeholder').style.display = 'none';
   var linesEl  = $('translation-lines');
   var lastLine = linesEl.lastChild;
-
-  if (lastLine && lastLine.classList.contains('tline') && lastLine.textContent.length < SHORT_LINE_CHARS) {
-    var merged = lastLine.textContent + ' ' + text;
-    lastLine.style.opacity = '0.5';
-    setTimeout(function() {
-      if (!lastLine || !lastLine.parentNode) return;
-      lastLine.textContent   = merged;
-      lastLine.style.opacity = '1';
-    }, 200);
-    if (!skipFirebase && lastFirebaseKey) translationsRef.child(lastFirebaseKey).update({ text: merged });
-    reclassLines();
-    return lastLine;
-  }
 
   var div = document.createElement('div');
   div.className   = 'tline newest';
@@ -234,6 +228,7 @@ function clearTranslations() {
   translationQueue = [];
   autoSermonContext = '';
   contextUpdateCounter = 0;
+  pendingBuffer = '';
   $('placeholder').style.display = 'block';
 }
 
@@ -555,11 +550,18 @@ async function triggerTranslation(text) {
     }
 
     if (result) {
-      var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
-      lastFirebaseKey = newRef.key;
-      displayFinalLine(result, true);
-      pushHistory(result);
-      updateSermonContext();
+      // Buffer short chunks; flush when combined length is long enough
+      pendingBuffer = pendingBuffer ? pendingBuffer + ' ' + result : result;
+
+      if (pendingBuffer.length >= SHORT_LINE_CHARS || translationQueue.length === 0) {
+        var toDisplay = pendingBuffer;
+        pendingBuffer = '';
+        var newRef = translationsRef.push({ text: toDisplay, timestamp: firebase.database.ServerValue.TIMESTAMP });
+        lastFirebaseKey = newRef.key;
+        displayFinalLine(toDisplay, true);
+        pushHistory(toDisplay);
+        updateSermonContext();
+      }
     }
 
     isTranslating = false;
