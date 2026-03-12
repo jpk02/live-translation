@@ -3,6 +3,7 @@ function insertParagraphBreak() {
   if (pendingBuffer) {
     var toDisplay = pendingBuffer;
     pendingBuffer = '';
+  clearTimeout(flushTimer); flushTimer = null;
     var newRef = translationsRef.push({ text:<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -172,7 +173,20 @@ var fullTranscript   = '';
 var cursor           = 0;
 var lastFirebaseKey  = null;
 var lastActivityTime = 0;
-var pendingBuffer    = '';   // holds short translations until they're long enough
+var pendingBuffer    = '';
+var flushTimer       = null;
+
+function flushPendingBuffer() {
+  clearTimeout(flushTimer); flushTimer = null;
+  if (!pendingBuffer) return;
+  var toDisplay = pendingBuffer;
+  pendingBuffer = '';
+  var newRef = translationsRef.push({ text: toDisplay, timestamp: firebase.database.ServerValue.TIMESTAMP });
+  lastFirebaseKey = newRef.key;
+  displayFinalLine(toDisplay, true);
+  pushHistory(toDisplay);
+  updateSermonContext();
+}
 
 // ── UI HELPERS ────────────────────────────────────────────────────────────────
 function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
@@ -550,17 +564,14 @@ async function triggerTranslation(text) {
     }
 
     if (result) {
-      // Buffer short chunks; flush when combined length is long enough
       pendingBuffer = pendingBuffer ? pendingBuffer + ' ' + result : result;
 
-      if (pendingBuffer.length >= SHORT_LINE_CHARS || translationQueue.length === 0) {
-        var toDisplay = pendingBuffer;
-        pendingBuffer = '';
-        var newRef = translationsRef.push({ text: toDisplay, timestamp: firebase.database.ServerValue.TIMESTAMP });
-        lastFirebaseKey = newRef.key;
-        displayFinalLine(toDisplay, true);
-        pushHistory(toDisplay);
-        updateSermonContext();
+      if (pendingBuffer.length >= SHORT_LINE_CHARS) {
+        flushPendingBuffer();
+      } else {
+        // Not long enough yet — wait up to 3s for another chunk before flushing
+        clearTimeout(flushTimer);
+        flushTimer = setTimeout(flushPendingBuffer, 3000);
       }
     }
 
