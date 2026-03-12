@@ -73,7 +73,7 @@ var FORCE_COMMIT_MS = 20000;
 var PROACTIVE_MS    = 25000;   // proactive mic swap interval
 var MAX_LINES       = 5;
 var SHORT_LINE_CHARS = 120;
-var MAX_RETRIES     = 2;       // translation retry attempts
+
 
 // ── FIREBASE ─────────────────────────────────────────────────────────────────
 var firebaseConfig = {
@@ -473,6 +473,15 @@ async function triggerTranslation(text, attempt) {
   setStatus('Translating...', 'translating');
   clearError();
 
+  // Safety unlock — if something goes wrong, never stay locked more than 25s
+  var safetyTimeout = setTimeout(function() {
+    if (!isTranslating) return;
+    isTranslating = false;
+    setStatus('🎤 Listening...', 'listening');
+    dbg('safety unlock');
+    processQueue();
+  }, 25000);
+
   var activeModel = MODEL;
   var topicLine    = manualTopic ? 'Sermon topic: ' + manualTopic + '\n\n' : '';
   var contextLine  = autoSermonContext ? 'Running sermon context (use to interpret ambiguous phrases): ' + autoSermonContext + '\n\n' : '';
@@ -544,6 +553,8 @@ async function triggerTranslation(text, attempt) {
       })
     });
 
+    clearTimeout(safetyTimeout);
+
     if (!res.ok) {
       var errData = await res.json().catch(function(){ return {}; });
       throw new Error('API error: ' + (errData && errData.error ? errData.error.message : 'HTTP '+res.status));
@@ -573,18 +584,15 @@ async function triggerTranslation(text, attempt) {
       updateSermonContext();
     }
 
+    clearTimeout(safetyTimeout);
     isTranslating = false;
     setStatus('🎤 Listening...', 'listening');
     dbg('done | q:'+translationQueue.length+(autoSermonContext?' | ctx ok':''));
     processQueue();
 
   } catch(err) {
-    if (attempt < MAX_RETRIES + 1) {
-      dbg('retry '+attempt+'/'+MAX_RETRIES);
-      await new Promise(function(r){ setTimeout(r, 1000); });
-      return triggerTranslation(text, attempt + 1);
-    }
-    // All retries exhausted
+    clearTimeout(safetyTimeout);
+    // No retries — just move on immediately so the queue never stalls
     if (err.name !== 'AbortError') showError(err.message || ('Network error: '+err));
     isTranslating = false;
     setStatus('🎤 Listening...', 'listening');
