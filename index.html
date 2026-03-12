@@ -1,10 +1,4 @@
-function insertParagraphBreak() {
-  // Flush any pending buffer first
-  if (pendingBuffer) {
-    var toDisplay = pendingBuffer;
-    pendingBuffer = '';
-  clearTimeout(flushTimer); flushTimer = null;
-    var newRef = translationsRef.push({ text:<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -34,7 +28,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 #translation-lines { display: flex; flex-direction: column; gap: 28px; margin-bottom: 12px; }
 .tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); overflow: hidden; transition: color 0.8s, opacity 0.8s; }
 .tline.newest { color: #ffffff; }
-.tbreak { height: 24px; flex-shrink: 0; }
+.tline.oldest { color: #555555; }
 #streaming-line { font-size: clamp(18px,2.5vw,36px); line-height: 1.4; color: #aaaaaa; text-shadow: 0 2px 20px rgba(0,0,0,0.8); min-height: 1.4em; transition: opacity 0.3s; }
 #streaming-line.empty { opacity: 0; }
 #streaming-cursor { display: inline-block; width: 3px; height: 0.85em; background: #aaaaaa; vertical-align: text-bottom; margin-left: 3px; animation: blink 0.7s infinite; }
@@ -175,18 +169,6 @@ var lastActivityTime = 0;
 var pendingBuffer    = '';
 var flushTimer       = null;
 
-function flushPendingBuffer() {
-  clearTimeout(flushTimer); flushTimer = null;
-  if (!pendingBuffer) return;
-  var toDisplay = pendingBuffer;
-  pendingBuffer = '';
-  var newRef = translationsRef.push({ text: toDisplay, timestamp: firebase.database.ServerValue.TIMESTAMP });
-  lastFirebaseKey = newRef.key;
-  displayFinalLine(toDisplay, true);
-  pushHistory(toDisplay);
-  updateSermonContext();
-}
-
 // ── UI HELPERS ────────────────────────────────────────────────────────────────
 function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
 function clearError()   { $('error-box').style.display = 'none'; }
@@ -209,9 +191,7 @@ function reclassLines() {
 
 function displayFinalLine(text, skipFirebase) {
   $('placeholder').style.display = 'none';
-  var linesEl  = $('translation-lines');
-  var lastLine = linesEl.lastChild;
-
+  var linesEl = $('translation-lines');
   var div = document.createElement('div');
   div.className   = 'tline newest';
   div.textContent = text;
@@ -232,6 +212,18 @@ function setStreamingText(text) {
   else { $('placeholder').style.display = 'none'; el.classList.remove('empty'); t.textContent = text; cur.style.display = 'inline-block'; }
 }
 
+function flushPendingBuffer() {
+  clearTimeout(flushTimer); flushTimer = null;
+  if (!pendingBuffer) return;
+  var toDisplay = pendingBuffer;
+  pendingBuffer = '';
+  var newRef = translationsRef.push({ text: toDisplay, timestamp: firebase.database.ServerValue.TIMESTAMP });
+  lastFirebaseKey = newRef.key;
+  displayFinalLine(toDisplay, true);
+  pushHistory(toDisplay);
+  updateSermonContext();
+}
+
 function clearTranslations() {
   translationsRef.remove();
   $('translation-lines').innerHTML = '';
@@ -242,6 +234,7 @@ function clearTranslations() {
   autoSermonContext = '';
   contextUpdateCounter = 0;
   pendingBuffer = '';
+  clearTimeout(flushTimer); flushTimer = null;
   $('placeholder').style.display = 'block';
 }
 
@@ -363,7 +356,7 @@ function wireRecHandlers(r) {
     var unsent = fullTranscript.slice(cursor).trim();
     if (unsent) enqueueTranslation(unsent);
     fullTranscript = ''; cursor = 0;
-    clearTimeout(silenceTimer);    silenceTimer    = null;
+    clearTimeout(silenceTimer);     silenceTimer     = null;
     clearTimeout(forceCommitTimer); forceCommitTimer = null;
     setTimeout(spawnRec, 150);
   };
@@ -404,7 +397,7 @@ function processQueue() {
 
 function stopListening() {
   isListening = false;
-  clearTimeout(silenceTimer);    silenceTimer    = null;
+  clearTimeout(silenceTimer);     silenceTimer     = null;
   clearTimeout(forceCommitTimer); forceCommitTimer = null;
   clearTimeout(proactiveTimer);   proactiveTimer   = null;
   clearInterval(watchdogTimer);   watchdogTimer    = null;
@@ -564,11 +557,9 @@ async function triggerTranslation(text) {
 
     if (result) {
       pendingBuffer = pendingBuffer ? pendingBuffer + ' ' + result : result;
-
       if (pendingBuffer.length >= SHORT_LINE_CHARS) {
         flushPendingBuffer();
       } else {
-        // Not long enough yet — wait up to 3s for another chunk before flushing
         clearTimeout(flushTimer);
         flushTimer = setTimeout(flushPendingBuffer, 3000);
       }
