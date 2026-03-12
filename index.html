@@ -67,6 +67,8 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 // ── CONFIG ───────────────────────────────────────────────────────────────────
 var WORKER_URL      = 'https://live-translation.pauljkim22.workers.dev';
 var MODEL           = 'claude-sonnet-4-6';
+var MODEL_FAST      = 'claude-haiku-4-5-20251001'; // used when queue is backed up
+var MAX_QUEUE       = 2;   // drop oldest chunks if queue exceeds this
 var SILENCE_MS      = 8000;
 var MAX_CHARS       = 500;
 var FORCE_COMMIT_MS = 20000;
@@ -411,6 +413,12 @@ function commitTranslation() {
 function enqueueTranslation(text) {
   if (!text || text.trim().length < 10) return;
   translationQueue.push(text);
+  // If backed up, merge and keep only the most recent MAX_QUEUE chunks
+  while (translationQueue.length > MAX_QUEUE) {
+    var oldest = translationQueue.shift();
+    // Prepend to next item so no content is silently dropped
+    translationQueue[0] = oldest + ' ' + translationQueue[0];
+  }
   processQueue();
 }
 
@@ -473,7 +481,7 @@ async function triggerTranslation(text, attempt) {
   setStatus('Translating...', 'translating');
   clearError();
 
-  var manualTopic  = $('sermonContext').value.trim();
+  var activeModel = translationQueue.length >= MAX_QUEUE ? MODEL_FAST : MODEL;
   var topicLine    = manualTopic ? 'Sermon topic: ' + manualTopic + '\n\n' : '';
   var contextLine  = autoSermonContext ? 'Running sermon context (use to interpret ambiguous phrases): ' + autoSermonContext + '\n\n' : '';
   // Send last 8 history lines (up from 3) with connector instruction
@@ -536,7 +544,7 @@ async function triggerTranslation(text, attempt) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model:      MODEL,
+        model:      activeModel,
         max_tokens: 600,           // bumped from 500
         stream:     false,
         system:     systemPrompt,
