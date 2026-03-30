@@ -344,21 +344,18 @@
       const fullName = document.getElementById('fullName').value.trim();
       const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
       const churchName = document.getElementById('churchName').value.trim();
       const slug = document.getElementById('churchSlug').value.trim();
 
-      if (!fullName || !email || !password || !churchName) {
+      if (!fullName || !email || !password || !churchName || !slug) {
         return showError('Please fill in all fields.');
       }
       if (password.length < 8) {
         return showError('Password must be at least 8 characters.');
       }
-      const confirmPassword = document.getElementById('confirmPassword').value;
       if (password !== confirmPassword) {
         return showError('Passwords do not match.');
-      }
-      if (!slug) {
-        return showError('Please enter a valid church name.');
       }
 
       const btn = document.getElementById('submitBtn');
@@ -367,33 +364,39 @@
       document.getElementById('errorMsg').style.display = 'none';
 
       try {
-        // 1. Check slug availability
+        // 1. Check slug availability — use maybeSingle() to avoid 406 when not found
         const { data: existing } = await supa
           .from('churches')
           .select('id')
           .eq('slug', slug)
-          .single();
+          .maybeSingle();
 
         if (existing) {
           btn.disabled = false;
           btn.textContent = 'Create account';
-          return showError(`The URL "${slug}" is already taken. Try a different church name.`);
+          return showError(`The URL "${slug}" is already taken. Try editing your slug.`);
         }
 
         // 2. Sign up user
         const { data: authData, error: authError } = await supa.auth.signUp({
           email,
           password,
-          options: {
-            data: { full_name: fullName }
-          }
+          options: { data: { full_name: fullName } }
         });
 
         if (authError) throw authError;
 
-        const userId = authData.user.id;
+        // 3. Sign in immediately so we have an authenticated session for RLS
+        const { data: signInData, error: signInError } = await supa.auth.signInWithPassword({
+          email,
+          password
+        });
 
-        // 3. Create church
+        if (signInError) throw signInError;
+
+        const userId = signInData.user.id;
+
+        // 4. Create church (now authenticated)
         const { data: church, error: churchError } = await supa
           .from('churches')
           .insert({ name: churchName, slug })
@@ -402,7 +405,7 @@
 
         if (churchError) throw churchError;
 
-        // 4. Create profile
+        // 5. Create profile
         const { error: profileError } = await supa
           .from('profiles')
           .insert({
@@ -415,8 +418,8 @@
 
         if (profileError) throw profileError;
 
-        showSuccess('Account created! Check your email to confirm, then sign in.');
-        btn.textContent = 'Account created';
+        // 6. Redirect to dashboard
+        window.location.href = 'dashboard.html';
 
       } catch (err) {
         console.error(err);
