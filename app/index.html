@@ -141,6 +141,15 @@ var churchSlug  = params.get('church') || '';
 var isOperator  = params.has('operator');
 var isReview    = params.has('review');
 
+// Hide controls immediately if not operator — don't wait for auth
+if (!isOperator) {
+  document.getElementById('controls').style.display = 'none';
+  document.getElementById('streaming-line').style.display = 'none';
+  document.getElementById('interim-text').style.display = 'none';
+  document.getElementById('debug-badge').style.display = 'none';
+  document.getElementById('mic-indicator').style.display = 'none';
+}
+
 // ── FIREBASE ──────────────────────────────────────────────────────────────────
 var firebaseConfig = {
   apiKey:            "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
