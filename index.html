@@ -17,6 +17,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 #startBtn { background: #2ecc71; color: #000; }
 #startBtn.active { background: #e74c3c; color: #fff; }
 #fullscreenBtn { background: #333; color: #ccc; margin-left: auto; }
+#transcriptBtn { background: #444; color: #ccc; }
 #status { font-size: 12px; color: #666; min-width: 160px; }
 #status.listening { color: #2ecc71; }
 #status.translating { color: #aaaaaa; }
@@ -29,10 +30,31 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 #placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
 #translation-box { width: 100%; max-width: 1200px; margin: 0 auto; text-align: center; padding-bottom: 40px; display: flex; flex-direction: column; justify-content: flex-end; min-height: 100%; }
 #translation-lines { display: flex; flex-direction: column; gap: 36px; }
-.tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); transition: color 0.8s, opacity 0.8s, transform 0.5s cubic-bezier(0.22,1,0.36,1); }
+.tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); transition: color 0.8s, opacity 0.8s, transform 0.5s cubic-bezier(0.22,1,0.36,1); cursor: text; position: relative; }
 .tline.newest { color: #ffffff; }
 .tline.oldest { color: #ffffff; }
 .tline.entering { opacity: 0; transform: translateY(30px); }
+/* Inline edit styles */
+.tline:hover::after { content: '✎'; position: absolute; right: -28px; top: 50%; transform: translateY(-50%); font-size: 14px; color: #555; pointer-events: none; }
+.tline-input { background: transparent; border: none; border-bottom: 1px solid #555; color: #fff; font-size: inherit; font-family: inherit; line-height: inherit; width: 100%; text-align: center; outline: none; padding: 2px 0; }
+.tline-input:focus { border-bottom-color: #2ecc71; }
+.edit-hint { position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%); background: #1a1a1a; border: 1px solid #333; color: #888; font-size: 11px; padding: 4px 10px; border-radius: 4px; pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 101; font-family: sans-serif; }
+.edit-hint.show { opacity: 1; }
+/* Korean transcript panel */
+#transcript-panel { position: fixed; top: 0; right: -380px; width: 360px; height: 100vh; background: #0e0e0e; border-left: 1px solid #222; display: flex; flex-direction: column; z-index: 200; transition: right 0.3s cubic-bezier(0.22,1,0.36,1); overflow: hidden; }
+#transcript-panel.open { right: 0; }
+#transcript-panel-header { background: #111; border-bottom: 1px solid #222; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+#transcript-panel-header span { font-size: 13px; font-weight: 600; color: #ccc; }
+#transcriptCloseBtn { background: #222; color: #ccc; padding: 4px 10px; font-size: 12px; border-radius: 4px; }
+#transcript-list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+#transcript-list::-webkit-scrollbar { width: 3px; }
+#transcript-list::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+.transcript-entry { display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid #1a1a1a; padding-bottom: 12px; }
+.transcript-ko { font-size: 13px; color: #888; line-height: 1.5; font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; }
+.transcript-en { font-size: 12px; color: #444; font-style: italic; line-height: 1.4; }
+.transcript-ts { font-size: 10px; color: #333; margin-top: 2px; }
+#transcript-export-btn { flex-shrink: 0; margin: 8px 16px 12px; background: #1a1a1a; border: 1px solid #2a2a2a; color: #666; font-size: 12px; padding: 7px; border-radius: 6px; cursor: pointer; font-weight: 500; }
+#transcript-export-btn:hover { background: #222; color: #999; }
 #interim-box { margin-top: 36px; min-height: 1.2em; }
 #streaming-line { font-size: clamp(18px,2.5vw,36px); line-height: 1.4; color: #aaaaaa; text-shadow: 0 2px 20px rgba(0,0,0,0.8); min-height: 1.4em; transition: opacity 0.3s; }
 #streaming-line.empty { opacity: 0; }
@@ -55,6 +77,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
   <button id="startBtn" onclick="toggleListening()">▶ Start</button>
   <button id="clearBtn" onclick="clearTranslations()" style="background:#555;color:#ccc;">⌫ Clear</button>
   <button id="exportBtn" onclick="exportTranslations()" style="background:#444;color:#ccc;">⬇ Export</button>
+  <button id="transcriptBtn" onclick="toggleTranscriptPanel()">🇰🇷 Korean</button>
   <span id="status">Ready</span>
   <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
 </div>
@@ -72,6 +95,18 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
     </div>
   </div>
 </div>
+
+<!-- Korean transcript side panel -->
+<div id="transcript-panel">
+  <div id="transcript-panel-header">
+    <span>🇰🇷 Korean Transcript</span>
+    <button id="transcriptCloseBtn" onclick="toggleTranscriptPanel()">✕ Close</button>
+  </div>
+  <div id="transcript-list"></div>
+  <button id="transcript-export-btn" onclick="exportTranscript()">⬇ Copy Korean transcript</button>
+</div>
+
+<div id="edit-hint" class="edit-hint">Double-click any line to edit · Enter to save · Esc to cancel</div>
 
 <div id="new-indicator" onclick="jumpToBottom()">New translation ↓</div>
 <div id="mic-indicator"></div>
@@ -178,6 +213,14 @@ if (!isOperator) {
         var it = snap.val();
         if (it && it.text) displayFinalLine(it.text);
       });
+      // Viewers also listen for edits
+      translationsRef.on('child_changed', function(snap) {
+        var it = snap.val();
+        if (it && it.text) {
+          var el = document.querySelector('[data-fbkey="' + snap.key + '"]');
+          if (el) el.textContent = it.text;
+        }
+      });
     });
   }
 
@@ -213,6 +256,9 @@ var cursor            = 0;
 var lastFirebaseKey   = null;
 var lastActivityTime  = 0;
 var lastCommittedText = '';
+
+// Korean transcript log: [{ko, en, ts}]
+var koTranscriptLog = [];
 
 // ── UI HELPERS ────────────────────────────────────────────────────────────────
 function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
@@ -256,6 +302,47 @@ function exportTranslations() {
   });
 }
 
+// ── KOREAN TRANSCRIPT PANEL ───────────────────────────────────────────────────
+var transcriptPanelOpen = false;
+
+function toggleTranscriptPanel() {
+  transcriptPanelOpen = !transcriptPanelOpen;
+  $('transcript-panel').classList.toggle('open', transcriptPanelOpen);
+  $('transcriptBtn').style.background = transcriptPanelOpen ? '#2a4a2a' : '#444';
+  $('transcriptBtn').style.color = transcriptPanelOpen ? '#2ecc71' : '#ccc';
+}
+
+function addTranscriptEntry(koText, enText) {
+  var ts = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  koTranscriptLog.push({ ko: koText, en: enText || '', ts: ts });
+
+  var list = $('transcript-list');
+  var entry = document.createElement('div');
+  entry.className = 'transcript-entry';
+  entry.innerHTML =
+    '<div class="transcript-ko">' + escHtml(koText) + '</div>' +
+    (enText ? '<div class="transcript-en">' + escHtml(enText) + '</div>' : '') +
+    '<div class="transcript-ts">' + ts + '</div>';
+  list.appendChild(entry);
+  list.scrollTop = list.scrollHeight;
+}
+
+function exportTranscript() {
+  if (!koTranscriptLog.length) { alert('No Korean transcript yet.'); return; }
+  var lines = koTranscriptLog.map(function(e) {
+    return '[' + e.ts + ']\n' + e.ko + (e.en ? '\n→ ' + e.en : '');
+  }).join('\n\n');
+  navigator.clipboard.writeText(lines).then(function() {
+    var btn = $('transcript-export-btn');
+    btn.textContent = '✓ Copied!';
+    setTimeout(function() { btn.textContent = '⬇ Copy Korean transcript'; }, 2000);
+  }).catch(function() {});
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 function toggleFullscreen() {
   if (!document.fullscreenElement) { document.documentElement.requestFullscreen(); $('controls').style.display = 'none'; }
   else { document.exitFullscreen(); $('controls').style.display = 'flex'; }
@@ -270,9 +357,20 @@ function reclassLines() {
   });
 }
 
+// ── FIX 1: ensurePunctuation ──────────────────────────────────────────────────
+// Only add punctuation if the text doesn't already end with . ! ? after
+// stripping any trailing quote character. Also never produce ," or ,."
 function ensurePunctuation(text) {
   if (!text) return text;
   text = text.trim();
+
+  // Fix trailing comma-then-period artefact (e.g. ,"  or ,." → .")
+  // Replace any sequence like  ,."  or  ,!  or  ,?"  with the correct ending
+  text = text.replace(/,([.!?])(["'\u201d]?)$/, '$1$2');
+  // Also remove a lone trailing comma before a closing quote
+  text = text.replace(/,(["'\u201d])$/, '$1');
+
+  // Now check if balanced quotes need closing
   var straightCount   = (text.match(/"/g) || []).length;
   var hasOpenStraight = straightCount % 2 !== 0;
   var curlyOpen       = (text.match(/\u201c/g) || []).length;
@@ -280,22 +378,110 @@ function ensurePunctuation(text) {
   var hasOpenCurly    = curlyOpen > curlyClose;
   var needsCloseQuote = hasOpenStraight || hasOpenCurly;
   var closeQ          = hasOpenCurly ? '\u201d' : '"';
-  if (/[.!?]["'\u201d]?$/.test(text)) {
+
+  // Strip the last character if it's a quote to inspect what's beneath it
+  var core = text.replace(/["'\u201d]$/, '');
+  var endsWithPunct = /[.!?]$/.test(core) || /[.!?]["'\u201d]$/.test(text);
+
+  if (endsWithPunct) {
+    // Already has terminal punctuation; just close any open quote if needed
     if (needsCloseQuote && !/["'\u201d]$/.test(text)) return text + closeQ;
     return text;
   }
-  if (/["\u201d]$/.test(text)) return text.slice(0, -1) + '."';
+
+  // Needs punctuation
+  if (/["'\u201d]$/.test(text)) {
+    // Ends with a closing quote — insert period before it
+    return text.slice(0, -1) + '.' + text.slice(-1);
+  }
   if (needsCloseQuote) return text + '.' + closeQ;
   return text + '.';
 }
 
-function displayFinalLine(text) {
+// ── FIX 2: inline editing ─────────────────────────────────────────────────────
+var editHintTimer = null;
+
+function showEditHint() {
+  var hint = $('edit-hint');
+  hint.classList.add('show');
+  clearTimeout(editHintTimer);
+  editHintTimer = setTimeout(function() { hint.classList.remove('show'); }, 3000);
+}
+
+function makeLineEditable(div, fbKey) {
+  if (div.querySelector('input')) return; // already editing
+  showEditHint();
+
+  var original = div.textContent.trim();
+  div.textContent = '';
+
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'tline-input';
+  input.value = original;
+  div.appendChild(input);
+  input.focus();
+  input.select();
+
+  function saveEdit() {
+    var newText = input.value.trim();
+    div.textContent = newText || original;
+    if (newText && newText !== original) {
+      // Update Firebase if we have a key
+      if (fbKey) {
+        translationsRef.child(fbKey).update({ text: newText });
+      }
+      // Update history log
+      var idx = historyLog.indexOf(original);
+      if (idx !== -1) historyLog[idx] = newText;
+      // Update Korean transcript entry's EN field
+      for (var i = koTranscriptLog.length - 1; i >= 0; i--) {
+        if (koTranscriptLog[i].en === original) {
+          koTranscriptLog[i].en = newText;
+          var entries = $('transcript-list').querySelectorAll('.transcript-entry');
+          // count from bottom to match
+          var entryIdx = koTranscriptLog.length - 1 - i;
+          var entry = entries[entries.length - 1 - (koTranscriptLog.length - 1 - i)];
+          if (entry) {
+            var enEl = entry.querySelector('.transcript-en');
+            if (enEl) enEl.textContent = newText;
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  function cancelEdit() {
+    div.textContent = original;
+  }
+
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+  });
+  input.addEventListener('blur', function() {
+    saveEdit();
+  });
+}
+
+function displayFinalLine(text, fbKey) {
   $('placeholder').style.display = 'none';
   var linesEl = $('translation-lines');
 
   var div = document.createElement('div');
   div.className   = 'tline newest entering';
   div.textContent = text;
+  if (fbKey) div.setAttribute('data-fbkey', fbKey);
+
+  // Double-click to edit (operator only; viewer DOM has no edit-hint element)
+  if (isOperator) {
+    div.addEventListener('dblclick', function() {
+      makeLineEditable(div, fbKey || div.getAttribute('data-fbkey'));
+    });
+    div.title = 'Double-click to edit';
+  }
+
   linesEl.appendChild(div);
 
   requestAnimationFrame(function() {
@@ -330,6 +516,7 @@ function setStreamingText(text) {
 function clearTranslations() {
   translationsRef.remove();
   $('translation-lines').innerHTML = '';
+  $('transcript-list').innerHTML = '';
   setStreamingText('');
   fullTranscript    = ''; cursor = 0;
   lastFirebaseKey   = null;
@@ -337,6 +524,7 @@ function clearTranslations() {
   translationQueue  = [];
   autoSermonContext  = '';
   contextUpdateCounter = 0;
+  koTranscriptLog   = [];
   $('placeholder').style.display   = 'block';
   $('new-indicator').style.display = 'none';
 }
@@ -660,20 +848,23 @@ async function triggerTranslation(text, retryCount) {
     }
 
     if (result) {
+      // FIX 3: Save Korean source text alongside translation
+      addTranscriptEntry(text, result);
+
       if (!operatorAuthReady) {
         var waitForAuth = setInterval(function() {
           if (!operatorAuthReady) return;
           clearInterval(waitForAuth);
           var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
           lastFirebaseKey = newRef.key;
-          displayFinalLine(result);
+          displayFinalLine(result, newRef.key);
           pushHistory(result);
           updateSermonContext();
         }, 300);
       } else {
         var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
         lastFirebaseKey = newRef.key;
-        displayFinalLine(result);
+        displayFinalLine(result, newRef.key);
         pushHistory(result);
         updateSermonContext();
       }
