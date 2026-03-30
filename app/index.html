@@ -252,46 +252,22 @@ async function initOperator() {
       return;
     }
 
-    // 3. Look up the active session for this church
-    var { data: session } = await supa
-      .from('sessions')
-      .select('*')
-      .eq('church_id', profile.church_id)
-      .is('ended_at', null)
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!session) {
-      showAuthGate('No active session found. Please start a session from your dashboard first.', false);
-      $('auth-gate').innerHTML += '<br><a href="../dashboard.html" style="color:#2ecc71;font-size:14px;margin-top:8px;display:block">Go to dashboard →</a>';
-      return;
-    }
-
-    // 4. All good — set up Firebase path and proceed
-    currentSessionId  = session.id;
+    // 3. All good — operator is verified, session will be created on Start
     currentChurchName = profile.churches.name;
-    translationsRef   = db.ref('translations/' + churchSlug + '/' + currentSessionId);
 
     // Firebase anon auth for writes
     auth.signInAnonymously().catch(function(err) {
       console.warn('Firebase anon auth error:', err.message);
     });
 
-    var operatorAuthReady = false;
+    window._operatorAuthReady = false;
     auth.onAuthStateChanged(function(u) {
-      if (u) { operatorAuthReady = true; dbg('auth:' + u.uid.slice(0,8)); }
+      if (u) { window._operatorAuthReady = true; dbg('auth:' + u.uid.slice(0,8)); }
     });
 
     hideAuthGate();
     $('church-name').textContent = currentChurchName.toUpperCase();
-    dbg('operator | ' + churchSlug + ' | ' + currentSessionId.slice(0,8));
-
-    // Store operatorAuthReady in outer scope for translation use
-    window._operatorAuthReady = false;
-    auth.onAuthStateChanged(function(u) {
-      if (u) window._operatorAuthReady = true;
-    });
+    dbg('operator ready | ' + churchSlug);
 
   } catch(err) {
     showAuthGate('Something went wrong: ' + err.message, true);
@@ -626,9 +602,40 @@ function clearTranslations() {
 }
 
 // ── SPEECH RECOGNITION ────────────────────────────────────────────────────────
-function toggleListening() {
-  if (!translationsRef) { showError('No active session. Please start a session from your dashboard.'); return; }
-  if (isListening) stopListening(); else startListening();
+async function toggleListening() {
+  if (isListening) {
+    stopListening();
+    await endSession();
+    return;
+  }
+  // Create a session if none exists
+  if (!translationsRef) {
+    await createSession();
+  }
+  if (translationsRef) startListening();
+}
+
+async function createSession() {
+  var title = 'Service — ' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  var churchRes = await supa.from('churches').select('id').eq('slug', churchSlug).single();
+  if (!churchRes.data) { showError('Could not find church.'); return; }
+  var { data: session, error } = await supa
+    .from('sessions')
+    .insert({ church_id: churchRes.data.id, title: title })
+    .select()
+    .single();
+  if (error) { showError('Could not create session: ' + error.message); return; }
+  currentSessionId = session.id;
+  translationsRef = db.ref('translations/' + churchSlug + '/' + currentSessionId);
+  dbg('session:' + currentSessionId.slice(0,8));
+}
+
+async function endSession() {
+  if (!currentSessionId) return;
+  await supa.from('sessions').update({ ended_at: new Date().toISOString() }).eq('id', currentSessionId);
+  currentSessionId = null;
+  translationsRef = null;
+  dbg('session ended');
 }
 
 function startListening() {
