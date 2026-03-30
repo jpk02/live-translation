@@ -7,6 +7,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -34,13 +35,11 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 .tline.newest { color: #ffffff; }
 .tline.oldest { color: #ffffff; }
 .tline.entering { opacity: 0; transform: translateY(30px); }
-/* Inline edit styles */
 .tline:hover::after { content: '✎'; position: absolute; right: -28px; top: 50%; transform: translateY(-50%); font-size: 14px; color: #555; pointer-events: none; }
 .tline-input { background: transparent; border: none; border-bottom: 2px solid #555; color: #fff; font-size: inherit; font-family: inherit; line-height: inherit; width: 100%; text-align: center; outline: none; padding: 4px 0; resize: none; overflow: hidden; display: block; }
 .tline-input:focus { border-bottom-color: #2ecc71; }
 .edit-hint { position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%); background: #1a1a1a; border: 1px solid #333; color: #888; font-size: 11px; padding: 4px 10px; border-radius: 4px; pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 101; font-family: sans-serif; }
 .edit-hint.show { opacity: 1; }
-/* Korean transcript panel */
 #transcript-panel { position: fixed; top: 0; right: -380px; width: 360px; height: 100vh; background: #0e0e0e; border-left: 1px solid #222; display: flex; flex-direction: column; z-index: 200; transition: right 0.3s cubic-bezier(0.22,1,0.36,1); overflow: hidden; }
 #transcript-panel.open { right: 0; }
 #transcript-panel-header { background: #111; border-bottom: 1px solid #222; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
@@ -67,9 +66,20 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 #mic-indicator { position: fixed; bottom: 24px; right: 28px; width: 14px; height: 14px; border-radius: 50%; background: #333; z-index: 99; display: none; }
 #mic-indicator.active { background: #2ecc71; box-shadow: 0 0 10px #2ecc71; animation: pulse 1.5s infinite; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* Auth gate overlay */
+#auth-gate { position: fixed; inset: 0; background: #0a0a0a; display: flex; align-items: center; justify-content: center; z-index: 999; flex-direction: column; gap: 16px; }
+#auth-gate p { color: #666; font-size: 14px; }
+#auth-gate a { color: #2ecc71; text-decoration: none; font-size: 14px; }
 </style>
 </head>
 <body>
+
+<!-- Auth gate shown while verifying operator, hidden for viewers -->
+<div id="auth-gate" style="display:none">
+  <p id="auth-gate-msg">Verifying your access…</p>
+  <a href="../login.html" id="auth-gate-link" style="display:none">Sign in →</a>
+</div>
 
 <div id="controls">
   <label style="font-size:13px;color:#888;">Sermon topic:</label>
@@ -85,7 +95,7 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 
 <div id="display">
   <div id="translation-box">
-    <div id="placeholder"><h1>CHIU YANG CHURCH</h1></div>
+    <div id="placeholder"><h1 id="church-name">LIVE TRANSLATION</h1></div>
     <div id="translation-lines"></div>
     <div id="interim-box">
       <div id="streaming-line" class="empty">
@@ -96,7 +106,6 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
   </div>
 </div>
 
-<!-- Korean transcript side panel -->
 <div id="transcript-panel">
   <div id="transcript-panel-header">
     <span>🇰🇷 Korean Transcript</span>
@@ -107,23 +116,32 @@ button { border: none; border-radius: 6px; padding: 7px 18px; font-size: 13px; c
 </div>
 
 <div id="edit-hint" class="edit-hint">Double-click any line to edit · Enter to save · Esc to cancel</div>
-
 <div id="new-indicator" onclick="jumpToBottom()">New translation ↓</div>
 <div id="mic-indicator"></div>
 <div id="debug-badge">ready</div>
 
 <script>
-// ── CONFIG ───────────────────────────────────────────────────────────────────
-var WORKER_URL       = 'https://live-translation.pauljkim22.workers.dev';
-var MODEL            = 'claude-sonnet-4-6';
-var SILENCE_MS       = 12000;
-var MAX_CHARS        = 500;
-var FORCE_COMMIT_MS  = 20000;
-var PROACTIVE_MS     = 25000;
-var MAX_LINES        = 500;
-var isNearBottom     = true;
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+var WORKER_URL      = 'https://live-translation.pauljkim22.workers.dev';
+var MODEL           = 'claude-sonnet-4-6';
+var SILENCE_MS      = 12000;
+var MAX_CHARS       = 500;
+var FORCE_COMMIT_MS = 20000;
+var PROACTIVE_MS    = 25000;
+var MAX_LINES       = 500;
+var isNearBottom    = true;
 
-// ── FIREBASE ─────────────────────────────────────────────────────────────────
+var SUPABASE_URL     = 'https://zhrkwgpjvgessiqmmefn.supabase.co';
+var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpocmt3Z3Bqdmdlc3NpcW1tZWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTUzMjksImV4cCI6MjA5MDQ3MTMyOX0.JoDcJXtL5il1sprbdf2M3XyyyN7BtdwmwY3hP3BrQ8Q';
+var supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── URL PARAMS ────────────────────────────────────────────────────────────────
+var params      = new URLSearchParams(window.location.search);
+var churchSlug  = params.get('church') || '';
+var isOperator  = params.has('operator');
+var isReview    = params.has('review');
+
+// ── FIREBASE ──────────────────────────────────────────────────────────────────
 var firebaseConfig = {
   apiKey:            "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
   authDomain:        "live-translation-fd583.firebaseapp.com",
@@ -133,12 +151,14 @@ var firebaseConfig = {
   messagingSenderId: "189364035896",
   appId:             "1:189364035896:web:552700e29449859089a1cd"
 };
-
 firebase.initializeApp(firebaseConfig);
-var db              = firebase.database();
-var auth            = firebase.auth();
-var translationsRef = db.ref('translations');
-var isOperator      = window.location.search.includes('operator');
+var db   = firebase.database();
+var auth = firebase.auth();
+
+// translationsRef is set after we know the church slug + session id
+var translationsRef     = null;
+var currentSessionId    = null;
+var currentChurchName   = '';
 
 function $(id) { return document.getElementById(id); }
 
@@ -162,26 +182,157 @@ displayEl.addEventListener('scroll', function() {
 function scrollToBottom() {
   displayEl.scrollTo({ top: displayEl.scrollHeight, behavior: 'smooth' });
 }
-
 function jumpToBottom() {
   scrollToBottom();
   $('new-indicator').style.display = 'none';
 }
 
-// ── ANONYMOUS AUTH ────────────────────────────────────────────────────────────
-auth.signInAnonymously().catch(function(err) {
-  if (isOperator) showError('Auth error: ' + err.message);
-  else console.warn('Auth error:', err.message);
-});
+// ── AUTH GATE HELPERS ─────────────────────────────────────────────────────────
+function showAuthGate(msg, showLink) {
+  var gate = $('auth-gate');
+  gate.style.display = 'flex';
+  $('auth-gate-msg').textContent = msg;
+  if (showLink) $('auth-gate-link').style.display = 'block';
+}
+function hideAuthGate() {
+  $('auth-gate').style.display = 'none';
+}
 
-// ── VIEWER ────────────────────────────────────────────────────────────────────
-if (!isOperator) {
+// ── MAIN INIT ─────────────────────────────────────────────────────────────────
+// No church slug = show error
+if (!churchSlug) {
+  document.addEventListener('DOMContentLoaded', function() {
+    showAuthGate('No church specified. Please use a valid link.');
+  });
+} else if (isOperator) {
+  // Operator: must be logged in via Supabase and belong to this church
+  showAuthGate('Verifying your access…', false);
+  initOperator();
+} else {
+  // Viewer / review: no login needed
+  auth.signInAnonymously().catch(function(err) {
+    console.warn('Firebase anon auth error:', err.message);
+  });
+  initViewer();
+}
+
+// ── OPERATOR INIT ─────────────────────────────────────────────────────────────
+async function initOperator() {
+  try {
+    // 1. Check Supabase session
+    var { data: { user } } = await supa.auth.getUser();
+    if (!user) {
+      showAuthGate('You need to sign in to use the operator view.', true);
+      return;
+    }
+
+    // 2. Load profile and verify church membership
+    var { data: profile, error: profileError } = await supa
+      .from('profiles')
+      .select('*, churches(*)')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      showAuthGate('Could not load your profile. Please sign in again.', true);
+      return;
+    }
+
+    if (profile.churches.slug !== churchSlug) {
+      showAuthGate('You do not have access to this church\'s operator view.', false);
+      return;
+    }
+
+    // 3. Look up the active session for this church
+    var { data: session } = await supa
+      .from('sessions')
+      .select('*')
+      .eq('church_id', profile.church_id)
+      .is('ended_at', null)
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!session) {
+      showAuthGate('No active session found. Please start a session from your dashboard first.', false);
+      $('auth-gate').innerHTML += '<br><a href="../dashboard.html" style="color:#2ecc71;font-size:14px;margin-top:8px;display:block">Go to dashboard →</a>';
+      return;
+    }
+
+    // 4. All good — set up Firebase path and proceed
+    currentSessionId  = session.id;
+    currentChurchName = profile.churches.name;
+    translationsRef   = db.ref('translations/' + churchSlug + '/' + currentSessionId);
+
+    // Firebase anon auth for writes
+    auth.signInAnonymously().catch(function(err) {
+      console.warn('Firebase anon auth error:', err.message);
+    });
+
+    var operatorAuthReady = false;
+    auth.onAuthStateChanged(function(u) {
+      if (u) { operatorAuthReady = true; dbg('auth:' + u.uid.slice(0,8)); }
+    });
+
+    hideAuthGate();
+    $('church-name').textContent = currentChurchName.toUpperCase();
+    dbg('operator | ' + churchSlug + ' | ' + currentSessionId.slice(0,8));
+
+    // Store operatorAuthReady in outer scope for translation use
+    window._operatorAuthReady = false;
+    auth.onAuthStateChanged(function(u) {
+      if (u) window._operatorAuthReady = true;
+    });
+
+  } catch(err) {
+    showAuthGate('Something went wrong: ' + err.message, true);
+  }
+}
+
+// ── VIEWER INIT ───────────────────────────────────────────────────────────────
+function initViewer() {
   var domReady  = false;
   var authReady = false;
   var authUser  = null;
 
-  function maybeInitViewer() {
+  async function maybeInitViewer() {
     if (!domReady || !authReady || !authUser) return;
+
+    // Look up active session for this church via Supabase
+    var { data: church } = await supa
+      .from('churches')
+      .select('id, name')
+      .eq('slug', churchSlug)
+      .single();
+
+    if (!church) {
+      $('church-name').textContent = 'CHURCH NOT FOUND';
+      return;
+    }
+
+    currentChurchName = church.name;
+    $('church-name').textContent = church.name.toUpperCase();
+
+    var { data: session } = await supa
+      .from('sessions')
+      .select('id')
+      .eq('church_id', church.id)
+      .is('ended_at', null)
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!session) {
+      $('church-name').textContent = church.name.toUpperCase();
+      // No active session — show waiting message
+      $('placeholder').innerHTML = '<h1>' + escHtml(church.name.toUpperCase()) + '</h1><p style="color:#333;font-size:16px;margin-top:20px;font-weight:300;letter-spacing:2px;">Waiting for service to begin…</p>';
+      // Poll every 15s for a session to start
+      setTimeout(function() { location.reload(); }, 15000);
+      return;
+    }
+
+    currentSessionId = session.id;
+    translationsRef  = db.ref('translations/' + churchSlug + '/' + currentSessionId);
 
     $('controls').style.display       = 'none';
     $('error-box').style.display      = 'none';
@@ -207,13 +358,14 @@ if (!isOperator) {
         if (it && it.text) displayFinalLine(it.text);
       });
       setTimeout(scrollToBottom, 100);
+
       translationsRef.on('child_added', function(snap) {
         if (seenKeys.has(snap.key)) return;
         seenKeys.add(snap.key);
         var it = snap.val();
         if (it && it.text) displayFinalLine(it.text);
       });
-      // Viewers also listen for edits
+
       translationsRef.on('child_changed', function(snap) {
         var it = snap.val();
         if (it && it.text) {
@@ -226,15 +378,6 @@ if (!isOperator) {
 
   document.addEventListener('DOMContentLoaded', function() { domReady = true; maybeInitViewer(); });
   auth.onAuthStateChanged(function(user) { authReady = true; authUser = user; maybeInitViewer(); });
-
-} else {
-  var operatorAuthReady = false;
-  auth.onAuthStateChanged(function(user) {
-    if (user) {
-      operatorAuthReady = true;
-      dbg('auth:' + user.uid.slice(0, 8));
-    }
-  });
 }
 
 // ── OPERATOR STATE ────────────────────────────────────────────────────────────
@@ -256,9 +399,7 @@ var cursor            = 0;
 var lastFirebaseKey   = null;
 var lastActivityTime  = 0;
 var lastCommittedText = '';
-
-// Korean transcript log: [{ko, en, ts}]
-var koTranscriptLog = [];
+var koTranscriptLog   = [];
 
 // ── UI HELPERS ────────────────────────────────────────────────────────────────
 function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
@@ -281,6 +422,7 @@ function setTranslating(val) {
   }
 }
 
+// ── EXPORT ────────────────────────────────────────────────────────────────────
 function exportTranslations() {
   var lines = $('translation-lines').querySelectorAll('.tline');
   if (!lines.length) { alert('No translations to export.'); return; }
@@ -291,11 +433,8 @@ function exportTranslations() {
     setTimeout(function() { btn.textContent = '⬇ Export'; }, 2000);
   }).catch(function() {
     var ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
     var btn = $('exportBtn');
     btn.textContent = '✓ Copied!';
     setTimeout(function() { btn.textContent = '⬇ Export'; }, 2000);
@@ -304,7 +443,6 @@ function exportTranslations() {
 
 // ── KOREAN TRANSCRIPT PANEL ───────────────────────────────────────────────────
 var transcriptPanelOpen = false;
-
 function toggleTranscriptPanel() {
   transcriptPanelOpen = !transcriptPanelOpen;
   $('transcript-panel').classList.toggle('open', transcriptPanelOpen);
@@ -315,7 +453,6 @@ function toggleTranscriptPanel() {
 function addTranscriptEntry(koText, enText) {
   var ts = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   koTranscriptLog.push({ ko: koText, en: enText || '', ts: ts });
-
   var list = $('transcript-list');
   var entry = document.createElement('div');
   entry.className = 'transcript-entry';
@@ -357,20 +494,12 @@ function reclassLines() {
   });
 }
 
-// ── FIX 1: ensurePunctuation ──────────────────────────────────────────────────
-// Only add punctuation if the text doesn't already end with . ! ? after
-// stripping any trailing quote character. Also never produce ," or ,."
+// ── ensurePunctuation ─────────────────────────────────────────────────────────
 function ensurePunctuation(text) {
   if (!text) return text;
   text = text.trim();
-
-  // Fix trailing comma-then-period artefact (e.g. ,"  or ,." → .")
-  // Replace any sequence like  ,."  or  ,!  or  ,?"  with the correct ending
   text = text.replace(/,([.!?])(["'\u201d]?)$/, '$1$2');
-  // Also remove a lone trailing comma before a closing quote
   text = text.replace(/,(["'\u201d])$/, '$1');
-
-  // Now check if balanced quotes need closing
   var straightCount   = (text.match(/"/g) || []).length;
   var hasOpenStraight = straightCount % 2 !== 0;
   var curlyOpen       = (text.match(/\u201c/g) || []).length;
@@ -378,29 +507,19 @@ function ensurePunctuation(text) {
   var hasOpenCurly    = curlyOpen > curlyClose;
   var needsCloseQuote = hasOpenStraight || hasOpenCurly;
   var closeQ          = hasOpenCurly ? '\u201d' : '"';
-
-  // Strip the last character if it's a quote to inspect what's beneath it
   var core = text.replace(/["'\u201d]$/, '');
   var endsWithPunct = /[.!?]$/.test(core) || /[.!?]["'\u201d]$/.test(text);
-
   if (endsWithPunct) {
-    // Already has terminal punctuation; just close any open quote if needed
     if (needsCloseQuote && !/["'\u201d]$/.test(text)) return text + closeQ;
     return text;
   }
-
-  // Needs punctuation
-  if (/["'\u201d]$/.test(text)) {
-    // Ends with a closing quote — insert period before it
-    return text.slice(0, -1) + '.' + text.slice(-1);
-  }
+  if (/["'\u201d]$/.test(text)) return text.slice(0, -1) + '.' + text.slice(-1);
   if (needsCloseQuote) return text + '.' + closeQ;
   return text + '.';
 }
 
-// ── FIX 2: inline editing ─────────────────────────────────────────────────────
+// ── INLINE EDITING ────────────────────────────────────────────────────────────
 var editHintTimer = null;
-
 function showEditHint() {
   var hint = $('edit-hint');
   hint.classList.add('show');
@@ -409,107 +528,66 @@ function showEditHint() {
 }
 
 function makeLineEditable(div, fbKey) {
-  if (div.querySelector('textarea')) return; // already editing
+  if (div.querySelector('textarea')) return;
   showEditHint();
-
   var original = div.textContent.trim();
   div.textContent = '';
-
   var input = document.createElement('textarea');
   input.className = 'tline-input';
   input.value = original;
   input.rows = 1;
   div.appendChild(input);
-
-  // Auto-size height to content so full paragraph is always visible
-  function autoSize() {
-    input.style.height = 'auto';
-    input.style.height = input.scrollHeight + 'px';
-  }
+  function autoSize() { input.style.height = 'auto'; input.style.height = input.scrollHeight + 'px'; }
   requestAnimationFrame(function() {
-    autoSize();
-    input.focus();
-    // Place cursor at end
+    autoSize(); input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   });
   input.addEventListener('input', autoSize);
-
   function saveEdit() {
     var newText = input.value.trim();
     div.textContent = newText || original;
     if (newText && newText !== original) {
-      // Update Firebase if we have a key
-      if (fbKey) {
-        translationsRef.child(fbKey).update({ text: newText });
-      }
-      // Update history log
+      if (fbKey && translationsRef) translationsRef.child(fbKey).update({ text: newText });
       var idx = historyLog.indexOf(original);
       if (idx !== -1) historyLog[idx] = newText;
-      // Update Korean transcript entry's EN field
       for (var i = koTranscriptLog.length - 1; i >= 0; i--) {
         if (koTranscriptLog[i].en === original) {
           koTranscriptLog[i].en = newText;
           var entries = $('transcript-list').querySelectorAll('.transcript-entry');
-          // count from bottom to match
-          var entryIdx = koTranscriptLog.length - 1 - i;
           var entry = entries[entries.length - 1 - (koTranscriptLog.length - 1 - i)];
-          if (entry) {
-            var enEl = entry.querySelector('.transcript-en');
-            if (enEl) enEl.textContent = newText;
-          }
+          if (entry) { var enEl = entry.querySelector('.transcript-en'); if (enEl) enEl.textContent = newText; }
           break;
         }
       }
     }
   }
-
-  function cancelEdit() {
-    div.textContent = original;
-  }
-
+  function cancelEdit() { div.textContent = original; }
   input.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); }
     else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
   });
-  input.addEventListener('blur', function() {
-    saveEdit();
-  });
+  input.addEventListener('blur', function() { saveEdit(); });
 }
 
 function displayFinalLine(text, fbKey) {
   $('placeholder').style.display = 'none';
   var linesEl = $('translation-lines');
-
   var div = document.createElement('div');
   div.className   = 'tline newest entering';
   div.textContent = text;
   if (fbKey) div.setAttribute('data-fbkey', fbKey);
-
-  // Double-click to edit (operator only; viewer DOM has no edit-hint element)
   if (isOperator) {
     div.addEventListener('dblclick', function() {
       makeLineEditable(div, fbKey || div.getAttribute('data-fbkey'));
     });
     div.title = 'Double-click to edit';
   }
-
   linesEl.appendChild(div);
-
-  requestAnimationFrame(function() {
-    requestAnimationFrame(function() {
-      div.classList.remove('entering');
-    });
-  });
-
+  requestAnimationFrame(function() { requestAnimationFrame(function() { div.classList.remove('entering'); }); });
   while (linesEl.children.length > MAX_LINES) linesEl.removeChild(linesEl.firstChild);
   reclassLines();
-
-  if (isNearBottom) {
-    setTimeout(scrollToBottom, 50);
-  } else {
-    $('new-indicator').style.display = 'block';
-  }
-
+  if (isNearBottom) { setTimeout(scrollToBottom, 50); }
+  else { $('new-indicator').style.display = 'block'; }
   return div;
 }
 
@@ -525,41 +603,39 @@ function setStreamingText(text) {
 }
 
 function clearTranslations() {
+  if (!translationsRef) return;
   translationsRef.remove();
   $('translation-lines').innerHTML = '';
   $('transcript-list').innerHTML = '';
   setStreamingText('');
-  fullTranscript    = ''; cursor = 0;
-  lastFirebaseKey   = null;
-  lastCommittedText = '';
-  translationQueue  = [];
-  autoSermonContext  = '';
-  contextUpdateCounter = 0;
-  koTranscriptLog   = [];
+  fullTranscript = ''; cursor = 0;
+  lastFirebaseKey = null; lastCommittedText = '';
+  translationQueue = []; autoSermonContext = '';
+  contextUpdateCounter = 0; koTranscriptLog = [];
   $('placeholder').style.display   = 'block';
   $('new-indicator').style.display = 'none';
 }
 
 // ── SPEECH RECOGNITION ────────────────────────────────────────────────────────
-function toggleListening() { if (isListening) stopListening(); else startListening(); }
+function toggleListening() {
+  if (!translationsRef) { showError('No active session. Please start a session from your dashboard.'); return; }
+  if (isListening) stopListening(); else startListening();
+}
 
 function startListening() {
   clearError();
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { showError('Please use Google Chrome.'); return; }
-
   isListening      = true;
   fullTranscript   = '';
   cursor           = 0;
   translationQueue = [];
   lastActivityTime = Date.now();
-
   $('startBtn').textContent = '■ Stop';
   $('startBtn').classList.add('active');
   $('mic-indicator').style.display = 'block';
   $('mic-indicator').classList.add('active');
   setStatus('🎤 Listening...', 'listening');
-
   spawnRec();
   startWatchdog();
   scheduleProactiveSwap();
@@ -578,9 +654,7 @@ function doProactiveSwap() {
   var unsent = fullTranscript.slice(cursor).trim();
   if (unsent) commitTranslation();
   recNext = new SR();
-  recNext.lang           = 'ko-KR';
-  recNext.continuous     = true;
-  recNext.interimResults = true;
+  recNext.lang = 'ko-KR'; recNext.continuous = true; recNext.interimResults = true;
   wireRecHandlers(recNext);
   if (rec) { try { rec.onend = null; rec.stop(); } catch(e) {} rec = null; }
   setTimeout(function() {
@@ -637,12 +711,10 @@ function wireRecHandlers(r) {
     if (unsent.length >= MAX_CHARS) { commitTranslation(); return; }
     silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
   };
-
   r.onerror = function(e) {
     if (e.error === 'no-speech' || e.error === 'aborted') return;
     if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
   };
-
   r.onend = function() {
     lastActivityTime = Date.now();
     if (!isListening) return;
@@ -659,9 +731,7 @@ function spawnRec() {
   if (!isListening) return;
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   rec = new SR();
-  rec.lang           = 'ko-KR';
-  rec.continuous     = true;
-  rec.interimResults = true;
+  rec.lang = 'ko-KR'; rec.continuous = true; rec.interimResults = true;
   wireRecHandlers(rec);
   scheduleForceCommit();
   try { rec.start(); } catch(e) {}
@@ -721,8 +791,8 @@ function updateSermonContext() {
       model: MODEL, max_tokens: 80, stream: false, temperature: 0,
       system: 'You are summarizing a live sermon for use as translation context. '
         + 'Given the recent translated lines, write a single short sentence (max 20 words) '
-        + 'describing the current topic, speaker situation, and any key context that would help '
-        + 'interpret ambiguous colloquial Korean phrases. Be specific and factual. No preamble.',
+        + 'describing the current topic, speaker situation, and any key context. '
+        + 'Be specific and factual. No preamble.',
       messages: [{ role: 'user', content: 'Recent sermon lines:\n' + recentLines + '\n\nSummarize the current context in one short sentence.' }]
     })
   }).then(function(r) { return r.json(); }).then(function(d) {
@@ -849,7 +919,10 @@ async function triggerTranslation(text, retryCount) {
     var result = data && data.content && data.content[0] ? data.content[0].text.trim() : null;
 
     if (result && /^[\s\.…]+$/.test(result)) result = null;
-    if (result && /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/.test(result)) result = null;
+    if (result) {
+      var koRatio = (result.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g) || []).length / result.length;
+      if (koRatio > 0.5) result = null;
+    }
 
     if (result) {
       var lastStop = Math.max(result.lastIndexOf('.'), result.lastIndexOf('!'), result.lastIndexOf('?'));
@@ -862,25 +935,25 @@ async function triggerTranslation(text, retryCount) {
     }
 
     if (result) {
-      // FIX 3: Save Korean source text alongside translation
       addTranscriptEntry(text, result);
 
-      if (!operatorAuthReady) {
-        var waitForAuth = setInterval(function() {
-          if (!operatorAuthReady) return;
-          clearInterval(waitForAuth);
-          var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
-          lastFirebaseKey = newRef.key;
-          displayFinalLine(result, newRef.key);
-          pushHistory(result);
-          updateSermonContext();
-        }, 300);
-      } else {
+      var doWrite = function() {
+        if (!translationsRef) return;
         var newRef = translationsRef.push({ text: result, timestamp: firebase.database.ServerValue.TIMESTAMP });
         lastFirebaseKey = newRef.key;
         displayFinalLine(result, newRef.key);
         pushHistory(result);
         updateSermonContext();
+      };
+
+      if (!window._operatorAuthReady) {
+        var waitForAuth = setInterval(function() {
+          if (!window._operatorAuthReady) return;
+          clearInterval(waitForAuth);
+          doWrite();
+        }, 300);
+      } else {
+        doWrite();
       }
     }
 
