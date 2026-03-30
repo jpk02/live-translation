@@ -275,6 +275,12 @@
       <div class="slug-preview" id="slugPreview"></div>
     </div>
 
+    <div class="field">
+      <label for="churchSlug">Your URL slug <span style="color:#c4bdb4;font-weight:300;text-transform:none;letter-spacing:0">(edit if taken)</span></label>
+      <input type="text" id="churchSlug" placeholder="chiuyang" />
+      <div class="slug-preview" id="slugFinalPreview"></div>
+    </div>
+
     <button class="btn" id="submitBtn" onclick="handleSignup()">Create account</button>
 
     <div class="footer-link">
@@ -285,7 +291,7 @@
   <script>
     const SUPABASE_URL = 'https://zhrkwgpjvgessiqmmefn.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpocmt3Z3Bqdmdlc3NpcW1tZWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTUzMjksImV4cCI6MjA5MDQ3MTMyOX0.JoDcJXtL5il1sprbdf2M3XyyyN7BtdwmwY3hP3BrQ8Q';
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     function toSlug(name) {
       return name.toLowerCase()
@@ -297,6 +303,22 @@
     document.getElementById('churchName').addEventListener('input', function() {
       const slug = toSlug(this.value);
       const preview = document.getElementById('slugPreview');
+      const slugInput = document.getElementById('churchSlug');
+      if (slug) {
+        preview.innerHTML = `Auto-generated: <span>${slug}</span>`;
+        slugInput.value = slug;
+        document.getElementById('slugFinalPreview').innerHTML = `Your viewer URL: <span>…/${slug}</span>`;
+      } else {
+        preview.innerHTML = '';
+        slugInput.value = '';
+        document.getElementById('slugFinalPreview').innerHTML = '';
+      }
+    });
+
+    document.getElementById('churchSlug').addEventListener('input', function() {
+      const slug = toSlug(this.value);
+      this.value = slug;
+      const preview = document.getElementById('slugFinalPreview');
       if (slug) {
         preview.innerHTML = `Your viewer URL: <span>…/${slug}</span>`;
       } else {
@@ -323,7 +345,7 @@
       const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
       const churchName = document.getElementById('churchName').value.trim();
-      const slug = toSlug(churchName);
+      const slug = document.getElementById('churchSlug').value.trim();
 
       if (!fullName || !email || !password || !churchName) {
         return showError('Please fill in all fields.');
@@ -346,7 +368,7 @@
 
       try {
         // 1. Check slug availability
-        const { data: existing } = await supabase
+        const { data: existing } = await supa
           .from('churches')
           .select('id')
           .eq('slug', slug)
@@ -359,7 +381,7 @@
         }
 
         // 2. Sign up user
-        const { data: authData, error: authError } = await supabase.auth.signUp({
+        const { data: authData, error: authError } = await supa.auth.signUp({
           email,
           password,
           options: {
@@ -372,7 +394,7 @@
         const userId = authData.user.id;
 
         // 3. Create church
-        const { data: church, error: churchError } = await supabase
+        const { data: church, error: churchError } = await supa
           .from('churches')
           .insert({ name: churchName, slug })
           .select()
@@ -381,7 +403,7 @@
         if (churchError) throw churchError;
 
         // 4. Create profile
-        const { error: profileError } = await supabase
+        const { error: profileError } = await supa
           .from('profiles')
           .insert({
             id: userId,
