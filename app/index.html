@@ -272,6 +272,45 @@ body.light #transcript-export-btn:hover { background: #e0d8d0; color: #1a1714; }
 body.light #auth-gate { background: #faf7f2; }
 body.light #auth-gate p { color: #7a7168; }
 
+/* ── VIEWER THEME BUTTON ── */
+#viewerThemeBtn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 99;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #888;
+  font-size: 16px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, border-color 0.2s;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+#viewerThemeBtn:hover {
+  background: rgba(255,255,255,0.14);
+  border-color: rgba(255,255,255,0.24);
+  color: #ccc;
+}
+
+body.light #viewerThemeBtn {
+  background: rgba(0,0,0,0.06);
+  border-color: rgba(0,0,0,0.12);
+  color: #7a7168;
+}
+
+body.light #viewerThemeBtn:hover {
+  background: rgba(0,0,0,0.1);
+  color: #1a1714;
+}
+
 /* ── AUTH GATE ── */
 #auth-gate { position: fixed; inset: 0; background: #0a0a0a; display: flex; align-items: center; justify-content: center; z-index: 999; flex-direction: column; gap: 16px; }
 #auth-gate p { color: #555; font-size: 14px; }
@@ -333,6 +372,7 @@ body.light #auth-gate p { color: #7a7168; }
 </div>
 
 <div id="edit-hint" class="edit-hint">Double-click any line to edit · Enter to save · Esc to cancel</div>
+<button id="viewerThemeBtn" onclick="toggleTheme()" title="Toggle light/dark mode"></button>
 <div id="new-indicator" onclick="jumpToBottom()">New translation ↓</div>
 <div id="mic-indicator"></div>
 <div id="debug-badge">ready</div>
@@ -543,6 +583,12 @@ function initViewer() {
     $('interim-text').style.display   = 'none';
     $('debug-badge').style.display    = 'none';
     $('mic-indicator').style.display  = 'none';
+    // Show floating theme toggle for viewers
+    var vBtn = $('viewerThemeBtn');
+    if (vBtn) {
+      vBtn.style.display = 'flex';
+      vBtn.textContent = document.body.classList.contains('light') ? '☾' : '☀';
+    }
 
     var seenKeys = new Set();
 
@@ -691,8 +737,14 @@ function escHtml(s) {
 function toggleTheme() {
   var isLight = document.body.classList.toggle('light');
   localStorage.setItem('theme', isLight ? 'light' : 'dark');
-  var btn = $('themeBtn');
-  if (btn) btn.textContent = isLight ? '☾' : '☀';
+  syncThemeButtons(isLight);
+}
+
+function syncThemeButtons(isLight) {
+  var operatorBtn = $('themeBtn');
+  var viewerBtn   = $('viewerThemeBtn');
+  if (operatorBtn) operatorBtn.textContent = isLight ? '☾' : '☀';
+  if (viewerBtn)   viewerBtn.textContent   = isLight ? '☾' : '☀';
 }
 
 // Apply saved theme on load
@@ -701,8 +753,7 @@ function toggleTheme() {
   if (saved === 'light') {
     document.body.classList.add('light');
     document.addEventListener('DOMContentLoaded', function() {
-      var btn = $('themeBtn');
-      if (btn) btn.textContent = '☾';
+      syncThemeButtons(true);
     });
   }
 })();
