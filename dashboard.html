@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Live Sermon Translation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --cream: #faf7f2;
+      --ink: #1a1714;
+      --muted: #7a7168;
+      --gold: #c9a84c;
+      --gold-light: #f5edd6;
+      --error: #b84c4c;
+      --success: #2d6a3f;
+      --border: #e2ddd5;
+      --white: #ffffff;
+    }
+
+    body {
+      background: var(--cream);
+      color: var(--ink);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+    }
+
+    /* Top nav */
+    .nav {
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .nav-brand {
+      font-family: 'Lora', serif;
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-brand span {
+      color: var(--gold);
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .nav-user {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .btn-ghost {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 7px 14px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      color: var(--ink);
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .btn-ghost:hover { border-color: var(--ink); }
+
+    /* Main layout */
+    .main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    .page-title {
+      margin-bottom: 32px;
+    }
+
+    .page-title h1 {
+      font-family: 'Lora', serif;
+      font-size: 28px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .page-title p {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    /* Cards */
+    .card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 28px 32px;
+      margin-bottom: 24px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .card-title {
+      font-family: 'Lora', serif;
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .card-subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* URL box */
+    .url-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--cream);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 10px 14px;
+    }
+
+    .url-box span {
+      flex: 1;
+      font-size: 14px;
+      color: var(--ink);
+      font-family: 'DM Mono', monospace;
+      word-break: break-all;
+    }
+
+    .btn-copy {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 6px 12px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--ink);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+
+    .btn-copy:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-copy.copied { border-color: var(--success); color: var(--success); }
+
+    /* Session */
+    .session-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #c4bdb4;
+    }
+
+    .status-dot.live {
+      background: #4caf7d;
+      box-shadow: 0 0 0 3px rgba(76,175,125,0.2);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(76,175,125,0.2); }
+      50% { box-shadow: 0 0 0 6px rgba(76,175,125,0.1); }
+    }
+
+    .status-label {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .session-form {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    .session-form .field {
+      flex: 1;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input[type="text"], input[type="email"] {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      color: var(--ink);
+      background: var(--cream);
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    input[type="text"]:focus, input[type="email"]:focus {
+      border-color: var(--gold);
+      background: white;
+    }
+
+    input::placeholder { color: #c4bdb4; }
+
+    .btn-primary {
+      padding: 10px 20px;
+      background: var(--ink);
+      color: white;
+      border: none;
+      border-radius: 3px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+
+    .btn-primary:hover { background: #2e2a26; }
+    .btn-primary:disabled { background: #c4bdb4; cursor: not-allowed; }
+
+    .btn-danger {
+      padding: 10px 20px;
+      background: #b84c4c;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+
+    .btn-danger:hover { background: #9e3e3e; }
+
+    /* Operators list */
+    .operator-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .operator-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--cream);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+    }
+
+    .operator-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .operator-name {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .operator-email {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .badge {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 3px 8px;
+      border-radius: 2px;
+      background: var(--gold-light);
+      color: #7a5c1a;
+    }
+
+    .badge.admin {
+      background: #e8f0fe;
+      color: #2a4db5;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 24px;
+      color: var(--muted);
+      font-size: 14px;
+      background: var(--cream);
+      border: 1px dashed var(--border);
+      border-radius: 3px;
+    }
+
+    /* Sessions list */
+    .session-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .session-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      background: var(--cream);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .session-item:hover { border-color: var(--gold); }
+
+    .session-info { flex: 1; }
+
+    .session-title {
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 3px;
+    }
+
+    .session-meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .session-lines {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    /* Invite form */
+    .invite-form {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      margin-top: 4px;
+    }
+
+    .invite-form .field { flex: 1; }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--ink);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: all 0.2s;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 60px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 20px 0;
+    }
+
+    .error-msg {
+      background: #fdf0f0;
+      border: 1px solid #e8c4c4;
+      border-radius: 3px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--error);
+      margin-bottom: 16px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="nav-brand">✦ <span>SermonLive</span></div>
+    <div class="nav-right">
+      <span class="nav-user" id="navUser"></span>
+      <button class="btn-ghost" onclick="handleSignOut()">Sign out</button>
+    </div>
+  </nav>
+
+  <div id="loadingState" class="loading">Loading your dashboard…</div>
+
+  <div class="main" id="mainContent" style="display:none">
+
+    <div class="page-title">
+      <h1 id="churchTitle">Your Church</h1>
+      <p>Manage your live translation sessions and team.</p>
+    </div>
+
+    <!-- Viewer URL -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Congregation viewer link</div>
+          <div class="card-subtitle">Share this with your congregation — no login required</div>
+        </div>
+      </div>
+      <div class="url-box">
+        <span id="viewerUrl"></span>
+        <button class="btn-copy" id="copyBtn" onclick="copyUrl()">Copy</button>
+      </div>
+    </div>
+
+    <!-- Active session -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Live session</div>
+          <div class="card-subtitle">Start a session before the operator begins translating</div>
+        </div>
+      </div>
+
+      <div class="session-status">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="status-label" id="statusLabel">No active session</span>
+      </div>
+
+      <div id="startSessionArea">
+        <div class="session-form">
+          <div class="field">
+            <label for="sessionTitle">Session title</label>
+            <input type="text" id="sessionTitle" placeholder="Sunday Service — March 30, 2026" />
+          </div>
+          <button class="btn-primary" onclick="startSession()">Start session</button>
+        </div>
+      </div>
+
+      <div id="stopSessionArea" style="display:none">
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <a id="operatorLink" href="#" target="_blank" class="btn-primary" style="text-decoration:none; display:inline-block;">
+            Open operator view ↗
+          </a>
+          <button class="btn-danger" onclick="stopSession()">End session</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Operators -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Operators</div>
+          <div class="card-subtitle">People who can run the mic and translation</div>
+        </div>
+      </div>
+
+      <div class="operator-list" id="operatorList">
+        <div class="empty-state">No operators yet</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div style="margin-bottom: 8px;">
+        <strong style="font-size:14px;">Invite an operator</strong>
+      </div>
+      <div class="error-msg" id="inviteError"></div>
+      <div class="invite-form">
+        <div class="field">
+          <label for="inviteEmail">Email address</label>
+          <input type="email" id="inviteEmail" placeholder="operator@church.org"
+            onkeydown="if(event.key==='Enter') inviteOperator()" />
+        </div>
+        <div class="field">
+          <label for="inviteName">Name</label>
+          <input type="text" id="inviteName" placeholder="Full name"
+            onkeydown="if(event.key==='Enter') inviteOperator()" />
+        </div>
+        <button class="btn-primary" id="inviteBtn" onclick="inviteOperator()">Invite</button>
+      </div>
+      <p style="font-size:12px; color:var(--muted); margin-top:10px;">
+        They'll receive an email to set up their account.
+      </p>
+    </div>
+
+    <!-- Past sessions -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Past sessions</div>
+          <div class="card-subtitle">Review previous sermon translations</div>
+        </div>
+      </div>
+
+      <div class="session-list" id="sessionList">
+        <div class="empty-state">No sessions yet — start your first one above</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const SUPABASE_URL = 'https://zhrkwgpjvgessiqmmefn.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpocmt3Z3Bqdmdlc3NpcW1tZWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTUzMjksImV4cCI6MjA5MDQ3MTMyOX0.JoDcJXtL5il1sprbdf2M3XyyyN7BtdwmwY3hP3BrQ8Q';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let currentUser = null;
+    let currentProfile = null;
+    let currentChurch = null;
+    let activeSession = null;
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return window.location.href = 'login.html';
+
+      currentUser = user;
+      document.getElementById('navUser').textContent = user.email;
+
+      // Load profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*, churches(*)')
+        .eq('id', user.id)
+        .single();
+
+      if (!profile) return window.location.href = 'login.html';
+
+      currentProfile = profile;
+      currentChurch = profile.churches;
+
+      document.getElementById('churchTitle').textContent = currentChurch.name;
+      document.title = `${currentChurch.name} — Dashboard`;
+
+      const base = window.location.origin;
+      const viewerUrl = `${base}/app/?church=${currentChurch.slug}`;
+      document.getElementById('viewerUrl').textContent = viewerUrl;
+      document.getElementById('loadingState').style.display = 'none';
+      document.getElementById('mainContent').style.display = 'block';
+
+      await Promise.all([loadOperators(), loadSessions(), checkActiveSession()]);
+    }
+
+    async function checkActiveSession() {
+      const { data } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('church_id', currentChurch.id)
+        .is('ended_at', null)
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (data) {
+        activeSession = data;
+        setSessionLive(true);
+      }
+    }
+
+    function setSessionLive(live) {
+      document.getElementById('statusDot').classList.toggle('live', live);
+      document.getElementById('statusLabel').textContent = live
+        ? `Live: ${activeSession?.title || 'Untitled session'}`
+        : 'No active session';
+      document.getElementById('startSessionArea').style.display = live ? 'none' : 'block';
+      document.getElementById('stopSessionArea').style.display = live ? 'block' : 'none';
+
+      if (live && currentChurch) {
+        const base = window.location.origin;
+        const opUrl = `${base}/app/?church=${currentChurch.slug}&operator`;
+        document.getElementById('operatorLink').href = opUrl;
+      }
+    }
+
+    async function startSession() {
+      const title = document.getElementById('sessionTitle').value.trim()
+        || `Service — ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+
+      const { data, error } = await supabase
+        .from('sessions')
+        .insert({ church_id: currentChurch.id, title })
+        .select()
+        .single();
+
+      if (error) return showToast('Could not start session.');
+      activeSession = data;
+      setSessionLive(true);
+      showToast('Session started.');
+    }
+
+    async function stopSession() {
+      if (!activeSession) return;
+      if (!confirm('End the current session? The translation will stop for viewers.')) return;
+
+      const { error } = await supabase
+        .from('sessions')
+        .update({ ended_at: new Date().toISOString() })
+        .eq('id', activeSession.id);
+
+      if (error) return showToast('Could not end session.');
+      activeSession = null;
+      setSessionLive(false);
+      showToast('Session ended.');
+      await loadSessions();
+    }
+
+    async function loadOperators() {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('church_id', currentChurch.id)
+        .order('created_at');
+
+      const list = document.getElementById('operatorList');
+      if (!data || data.length === 0) {
+        list.innerHTML = '<div class="empty-state">No operators yet</div>';
+        return;
+      }
+
+      list.innerHTML = data.map(p => `
+        <div class="operator-item">
+          <div class="operator-info">
+            <div class="operator-name">${p.full_name || '—'}</div>
+            <div class="operator-email">${p.email || ''}</div>
+          </div>
+          <span class="badge ${p.role === 'admin' ? 'admin' : ''}">${p.role}</span>
+        </div>
+      `).join('');
+    }
+
+    async function inviteOperator() {
+      const email = document.getElementById('inviteEmail').value.trim();
+      const name = document.getElementById('inviteName').value.trim();
+      const errEl = document.getElementById('inviteError');
+      errEl.style.display = 'none';
+
+      if (!email || !name) {
+        errEl.textContent = 'Please enter both a name and email.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      const btn = document.getElementById('inviteBtn');
+      btn.disabled = true;
+      btn.textContent = 'Inviting…';
+
+      try {
+        // Create a pending profile entry — they'll sign up via invite email
+        const { error } = await supabase.auth.admin; // placeholder — invite via magic link
+
+        // For now: use Supabase's signUp to create account with temp password
+        // In production this would use an invite email flow
+        const tempPassword = Math.random().toString(36).slice(2) + 'Aa1!';
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email,
+          password: tempPassword,
+          options: { data: { full_name: name } }
+        });
+
+        if (authError) throw authError;
+
+        // Create their profile
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            id: authData.user.id,
+            church_id: currentChurch.id,
+            role: 'operator',
+            full_name: name,
+            email
+          });
+
+        if (profileError) throw profileError;
+
+        document.getElementById('inviteEmail').value = '';
+        document.getElementById('inviteName').value = '';
+        showToast(`Invite sent to ${email}`);
+        await loadOperators();
+
+      } catch (err) {
+        errEl.textContent = err.message || 'Could not send invite.';
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Invite';
+      }
+    }
+
+    async function loadSessions() {
+      const { data } = await supabase
+        .from('sessions')
+        .select('*, translations(count)')
+        .eq('church_id', currentChurch.id)
+        .not('ended_at', 'is', null)
+        .order('started_at', { ascending: false })
+        .limit(20);
+
+      const list = document.getElementById('sessionList');
+      if (!data || data.length === 0) {
+        list.innerHTML = '<div class="empty-state">No sessions yet — start your first one above</div>';
+        return;
+      }
+
+      list.innerHTML = data.map(s => {
+        const date = new Date(s.started_at).toLocaleDateString('en-US', {
+          weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+        });
+        const duration = s.ended_at
+          ? formatDuration(new Date(s.started_at), new Date(s.ended_at))
+          : '';
+        const lineCount = s.translations?.[0]?.count || 0;
+        return `
+          <div class="session-item" onclick="viewSession('${s.id}')">
+            <div class="session-info">
+              <div class="session-title">${s.title || 'Untitled session'}</div>
+              <div class="session-meta">${date}${duration ? ' · ' + duration : ''}</div>
+            </div>
+            <div class="session-lines">${lineCount} lines</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function formatDuration(start, end) {
+      const mins = Math.round((end - start) / 60000);
+      if (mins < 60) return `${mins}m`;
+      return `${Math.floor(mins/60)}h ${mins % 60}m`;
+    }
+
+    function viewSession(id) {
+      // Future: open a session review page
+      showToast('Session review coming soon.');
+    }
+
+    function copyUrl() {
+      const url = document.getElementById('viewerUrl').textContent;
+      navigator.clipboard.writeText(url).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      });
+    }
+
+    async function handleSignOut() {
+      await supabase.auth.signOut();
+      window.location.href = 'login.html';
+    }
+
+    init();
+  </script>
+</body>
+</html>
