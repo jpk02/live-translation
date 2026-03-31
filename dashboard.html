@@ -485,6 +485,16 @@
       allSessions = data || [];
     }
 
+    function getSortedSessions(sessions) {
+      var sorted = sessions.slice();
+      var sort = document.getElementById('sortSelect') ? document.getElementById('sortSelect').value : 'date-desc';
+      if (sort === 'date-desc') sorted.sort(function(a,b) { return new Date(b.started_at) - new Date(a.started_at); });
+      else if (sort === 'date-asc') sorted.sort(function(a,b) { return new Date(a.started_at) - new Date(b.started_at); });
+      else if (sort === 'name-asc') sorted.sort(function(a,b) { return (a.title||'').localeCompare(b.title||''); });
+      else if (sort === 'name-desc') sorted.sort(function(a,b) { return (b.title||'').localeCompare(a.title||''); });
+      return sorted;
+    }
+
     function renderSessions() {
       var area    = document.getElementById('sessionsArea');
       var active  = allSessions.filter(function(s) { return !s.deleted_at; });
