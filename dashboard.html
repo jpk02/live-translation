@@ -394,14 +394,16 @@
       var btn = document.getElementById('inviteBtn');
       btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Inviting…';
       try {
-        var tempPassword = Math.random().toString(36).slice(2) + 'Aa1!';
-        var { data: authData, error: authError } = await supa.auth.signUp({ email, password: tempPassword, options: { data: { full_name: name } } });
-        if (authError) throw authError;
-        var { error: profileError } = await supa.from('profiles').insert({ id: authData.user.id, church_id: currentChurch.id, role: 'member', full_name: name, email });
-        if (profileError) throw profileError;
+        var res = await fetch('https://live-translation.pauljkim22.workers.dev/invite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, name: name, church_id: currentChurch.id })
+        });
+        var data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Invite failed');
         document.getElementById('inviteName').value = '';
         document.getElementById('inviteEmail').value = '';
-        showToast('Invite sent to ' + email);
+        showToast('Invite email sent to ' + email);
         await loadMembers();
       } catch(err) {
         errEl.textContent = err.message || 'Could not invite member.';
