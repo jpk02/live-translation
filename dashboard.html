@@ -490,34 +490,33 @@
       var active  = allSessions.filter(function(s) { return !s.deleted_at; });
       var trashed = allSessions.filter(function(s) { return s.deleted_at; });
 
+      // Active sessions + folders
       var html = '';
-      if (!active.length && !allFolders.length) {
-        area.innerHTML = '<div class="empty-state">No sessions yet — sessions appear here after the operator ends them</div>';
-      } else {
-        var ungrouped = getSortedSessions(active.filter(function(s) { return !s.folder_id; }));
-        ungrouped.forEach(function(s) { html += renderSessionItem(s, true); });
-        allFolders.forEach(function(folder) {
-          var sessions = getSortedSessions(active.filter(function(s) { return s.folder_id === folder.id; }));
-          html += '<div class="folder-group" id="folder-' + folder.id + '">' +
-            '<div class="folder-header" onclick="toggleFolder(\'' + folder.id + '\')">' +
-              '<span class="folder-chevron open" id="chevron-' + folder.id + '">▶</span>' +
-              '<span class="folder-icon">📁</span>' +
-              '<span class="folder-name">' + escHtml(folder.name) + '</span>' +
-              '<span class="folder-count">' + sessions.length + ' session' + (sessions.length !== 1 ? 's' : '') + '</span>' +
-              '<div class="folder-actions" onclick="event.stopPropagation()">' +
-                '<button class="folder-action-btn" onclick="renameFolder(\'' + folder.id + '\')">Rename</button>' +
-                '<button class="folder-action-btn del" onclick="deleteFolder(\'' + folder.id + '\')">Delete</button>' +
-              '</div>' +
-            '</div>' +
-            '<div class="folder-body open" id="folderbody-' + folder.id + '">' +
-              (sessions.length
-                ? sessions.map(function(s) { return renderSessionItem(s, false); }).join('')
-                : '<div style="padding:16px;font-size:13px;color:var(--muted)">No sessions in this folder</div>') +
-            '</div>' +
-          '</div>';
-        });
-        area.innerHTML = html || '<div class="empty-state">No sessions yet — sessions appear here after the operator ends them</div>';
-      }
+      var ungrouped = getSortedSessions(active.filter(function(s) { return !s.folder_id; }));
+      ungrouped.forEach(function(s) { html += renderSessionItem(s, true); });
+
+      allFolders.forEach(function(folder) {
+        var fid = folder.id;
+        var sessions = getSortedSessions(active.filter(function(s) { return s.folder_id === fid; }));
+        var folderSessions = sessions.length
+          ? sessions.map(function(s) { return renderSessionItem(s, false); }).join('')
+          : '<div style="padding:16px;font-size:13px;color:var(--muted)">No sessions in this folder</div>';
+        html += '<div class="folder-group" id="folder-' + fid + '">'
+          + '<div class="folder-header" onclick="toggleFolder(\'' + fid + '\')">'
+            + '<span class="folder-chevron open" id="chevron-' + fid + '">&#9656;</span>'
+            + '<span class="folder-icon">&#128193;</span>'
+            + '<span class="folder-name">' + escHtml(folder.name) + '</span>'
+            + '<span class="folder-count">' + sessions.length + ' session' + (sessions.length !== 1 ? 's' : '') + '</span>'
+            + '<div class="folder-actions" onclick="event.stopPropagation()">'
+              + '<button class="folder-action-btn" onclick="renameFolder(\'' + fid + '\')">Rename</button>'
+              + '<button class="folder-action-btn del" onclick="deleteFolder(\'' + fid + '\')">Delete</button>'
+            + '</div>'
+          + '</div>'
+          + '<div class="folder-body open" id="folderbody-' + fid + '">' + folderSessions + '</div>'
+        + '</div>';
+      });
+
+      area.innerHTML = html || '<div class="empty-state">No sessions yet — sessions appear here after the operator ends them</div>';
 
       // Trash
       var trashSection = document.getElementById('trashSection');
@@ -525,16 +524,18 @@
         trashSection.style.display = 'block';
         document.getElementById('trashCount').textContent = '(' + trashed.length + ')';
         document.getElementById('trashList').innerHTML = trashed.map(function(s) {
-          return '<div class="trash-item">' +
-            '<div class="trash-info">' +
-              '<div class="trash-title">' + escHtml(s.title || 'Untitled') + '</div>' +
-              '<div class="trash-meta">Deleted ' + timeAgo(new Date(s.deleted_at)) + '</div>' +
-            '</div>' +
-            '<div class="trash-controls">' +
-              '<button class="btn-restore" onclick="restoreSession(\'' + s.id + '\')">Restore</button>' +
-              '<button class="btn-danger" onclick="permanentDelete(\'' + s.id + '\')">Delete permanently</button>' +
-            '</div>' +
-          '</div>';
+          var checked = selectedTrashed.has(s.id);
+          return '<div class="trash-item' + (checked ? ' selected' : '') + '" id="trashrow-' + s.id + '">'
+            + '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onclick="toggleTrashSelect(\'' + s.id + '\', event)" style="margin-right:10px;cursor:pointer;width:15px;height:15px;flex-shrink:0;accent-color:#b84c4c" />'
+            + '<div class="trash-info">'
+              + '<div class="trash-title">' + escHtml(s.title || 'Untitled') + '</div>'
+              + '<div class="trash-meta">Deleted ' + timeAgo(new Date(s.deleted_at)) + '</div>'
+            + '</div>'
+            + '<div class="trash-controls">'
+              + '<button class="btn-restore" onclick="restoreSession(\'' + s.id + '\')">Restore</button>'
+              + '<button class="btn-danger" onclick="permanentDelete(\'' + s.id + '\')">Delete permanently</button>'
+            + '</div>'
+          + '</div>';
         }).join('');
       } else {
         trashSection.style.display = 'none';
