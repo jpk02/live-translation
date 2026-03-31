@@ -394,10 +394,10 @@
       var btn = document.getElementById('inviteBtn');
       btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Inviting…';
       try {
-        var res = await fetch('https://live-translation.pauljkim22.workers.dev/invite', {
+        var res = await fetch('/invite', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email, name: name, church_id: currentChurch.id })
+          body: JSON.stringify({ email: email, name: name, church_id: currentChurch.id, church_name: currentChurch.name })
         });
         var data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Invite failed');
