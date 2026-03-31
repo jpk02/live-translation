@@ -1,1234 +1,599 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live Translation</title>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Lora:wght@400;600&display=swap" rel="stylesheet">
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #0a0a0a; color: #f0f0f0; font-family: 'Inter', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-
-/* ── CONTROLS BAR ── */
-#controls {
-  background: #0f0f0f;
-  border-bottom: 1px solid #1e1e1e;
-  padding: 0 24px;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  gap: 0;
-  flex-shrink: 0;
-}
-
-/* Left section: church name + topic */
-.ctrl-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  min-width: 0;
-}
-
-.ctrl-divider {
-  width: 1px;
-  height: 20px;
-  background: #252525;
-  flex-shrink: 0;
-}
-
-.ctrl-topic-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.ctrl-topic-label {
-  font-size: 11px;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-input[type="text"] {
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-radius: 5px;
-  color: #e0e0e0;
-  padding: 6px 10px;
-  font-size: 13px;
-  font-family: 'Inter', sans-serif;
-  width: 260px;
-  outline: none;
-  transition: border-color 0.2s, background 0.2s;
-}
-
-input[type="text"]:focus {
-  border-color: #555;
-  background: #222;
-}
-
-input[type="text"]::placeholder { color: #444; }
-
-/* Center section: status pill */
-.status-pill {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #161616;
-  border: 1px solid #222;
-  border-radius: 20px;
-  padding: 6px 14px;
-  transition: all 0.3s;
-}
-
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #333;
-  transition: background 0.3s, box-shadow 0.3s;
-  flex-shrink: 0;
-}
-
-.status-dot.listening {
-  background: #2ecc71;
-  box-shadow: 0 0 8px rgba(46,204,113,0.6);
-  animation: statusPulse 1.5s infinite;
-}
-
-.status-dot.translating {
-  background: #c9a84c;
-  box-shadow: 0 0 8px rgba(201,168,76,0.5);
-  animation: statusPulse 0.8s infinite;
-}
-
-.status-dot.error {
-  background: #e74c3c;
-  box-shadow: 0 0 8px rgba(231,76,60,0.5);
-}
-
-@keyframes statusPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-#status {
-  font-size: 12px;
-  color: #555;
-  letter-spacing: 0.03em;
-  transition: color 0.3s;
-  white-space: nowrap;
-}
-
-#status.listening { color: #2ecc71; }
-#status.translating { color: #c9a84c; }
-#status.error { color: #e74c3c; }
-
-/* Right section: action buttons */
-.ctrl-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-button { border: none; cursor: pointer; font-family: 'Inter', sans-serif; font-weight: 500; transition: all 0.15s; }
-
-#startBtn {
-  background: #1a3d2a;
-  color: #2ecc71;
-  border: 1px solid #2a5c3a;
-  border-radius: 6px;
-  padding: 8px 20px;
-  font-size: 13px;
-  letter-spacing: 0.03em;
-}
-
-#startBtn:hover { background: #1f4d32; border-color: #2ecc71; }
-
-#startBtn.active {
-  background: #3d1a1a;
-  color: #e74c3c;
-  border-color: #5c2a2a;
-}
-
-#startBtn.active:hover { background: #4d1f1f; border-color: #e74c3c; }
-
-.ctrl-btn {
-  background: transparent;
-  border: 1px solid #222;
-  border-radius: 6px;
-  padding: 7px 14px;
-  font-size: 12px;
-  color: #555;
-}
-
-.ctrl-btn:hover { border-color: #444; color: #999; }
-.ctrl-btn.active { border-color: #2a4a2a; color: #2ecc71; background: #0d1f0d; }
-
-#error-box { display: none; background: #150000; border-top: 1px solid #3a0000; padding: 8px 24px; font-size: 12px; color: #ff6b6b; font-family: monospace; word-break: break-all; flex-shrink: 0; }
-
-/* ── DISPLAY ── */
-#display { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 40px 40px 24px; position: relative; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
-#display::-webkit-scrollbar { width: 4px; }
-#display::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
-#placeholder { text-align: center; color: #1e1e1e; padding: 40vh 0; pointer-events: none; }
-#placeholder h1 { font-size: 48px; font-weight: 300; letter-spacing: 4px; }
-#translation-box { width: 100%; max-width: 1200px; margin: 0 auto; text-align: center; padding-bottom: 40px; display: flex; flex-direction: column; justify-content: flex-end; min-height: 100%; }
-#translation-lines { display: flex; flex-direction: column; gap: 36px; }
-.tline { font-size: clamp(18px, 2.5vw, 36px); line-height: 1.4; text-shadow: 0 2px 20px rgba(0,0,0,0.8); transition: color 0.8s, opacity 0.8s, transform 0.5s cubic-bezier(0.22,1,0.36,1); cursor: text; position: relative; }
-.tline.newest { color: #ffffff; }
-.tline.oldest { color: #ffffff; }
-.tline.entering { opacity: 0; transform: translateY(30px); }
-.tline:hover::after { content: '✎'; position: absolute; right: -28px; top: 50%; transform: translateY(-50%); font-size: 14px; color: #555; pointer-events: none; }
-.tline-input { background: transparent; border: none; border-bottom: 2px solid #555; color: #fff; font-size: inherit; font-family: inherit; line-height: inherit; width: 100%; text-align: center; outline: none; padding: 4px 0; resize: none; overflow: hidden; display: block; }
-.tline-input:focus { border-bottom-color: #2ecc71; }
-.edit-hint { position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%); background: #1a1a1a; border: 1px solid #333; color: #888; font-size: 11px; padding: 4px 10px; border-radius: 4px; pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 101; font-family: sans-serif; }
-.edit-hint.show { opacity: 1; }
-
-/* ── KOREAN TRANSCRIPT PANEL ── */
-#transcript-panel { position: fixed; top: 0; right: -380px; width: 360px; height: 100vh; background: #0e0e0e; border-left: 1px solid #1a1a1a; display: flex; flex-direction: column; z-index: 200; transition: right 0.3s cubic-bezier(0.22,1,0.36,1); overflow: hidden; }
-#transcript-panel.open { right: 0; }
-#transcript-panel-header { background: #0f0f0f; border-bottom: 1px solid #1a1a1a; padding: 16px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-#transcript-panel-header span { font-size: 13px; font-weight: 600; color: #888; letter-spacing: 0.05em; }
-#transcriptCloseBtn { background: #1a1a1a; color: #666; padding: 4px 10px; font-size: 12px; border-radius: 4px; border: 1px solid #252525; }
-#transcriptCloseBtn:hover { color: #999; border-color: #333; }
-#transcript-list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-#transcript-list::-webkit-scrollbar { width: 3px; }
-#transcript-list::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
-.transcript-entry { display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid #161616; padding-bottom: 12px; }
-.transcript-ko { font-size: 13px; color: #666; line-height: 1.5; font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; }
-.transcript-en { font-size: 12px; color: #3a3a3a; font-style: italic; line-height: 1.4; }
-.transcript-ts { font-size: 10px; color: #2a2a2a; margin-top: 2px; }
-#transcript-export-btn { flex-shrink: 0; margin: 8px 16px 12px; background: #141414; border: 1px solid #222; color: #555; font-size: 12px; padding: 8px; border-radius: 6px; cursor: pointer; font-weight: 500; }
-#transcript-export-btn:hover { background: #1a1a1a; color: #888; }
-
-/* ── INTERIM + STREAMING ── */
-#interim-box { margin-top: 36px; min-height: 1.2em; }
-#streaming-line { font-size: clamp(18px,2.5vw,36px); line-height: 1.4; color: #aaaaaa; text-shadow: 0 2px 20px rgba(0,0,0,0.8); min-height: 1.4em; transition: opacity 0.3s; }
-#streaming-line.empty { opacity: 0; }
-#streaming-cursor { display: inline-block; width: 3px; height: 0.85em; background: #aaaaaa; vertical-align: text-bottom; margin-left: 3px; animation: blink 0.7s infinite; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-#interim-text { font-size: clamp(11px,1.2vw,16px); color: #2a2a2a; margin-top: 12px; font-style: italic; min-height: 1.2em; font-family: sans-serif; }
-
-/* ── INDICATORS ── */
-#new-indicator { display: none; position: fixed; bottom: 48px; left: 50%; transform: translateX(-50%); background: #1a3d2a; color: #2ecc71; border: 1px solid #2a5c3a; font-size: 13px; font-weight: 600; padding: 8px 20px; border-radius: 20px; cursor: pointer; box-shadow: 0 4px 20px rgba(0,0,0,0.5); z-index: 100; font-family: sans-serif; animation: fadeIn 0.3s ease; }
-@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-#debug-badge { position: fixed; bottom: 20px; left: 20px; font-size: 10px; font-family: monospace; color: #2a2a2a; background: #0f0f0f; padding: 3px 7px; border-radius: 3px; border: 1px solid #1a1a1a; pointer-events: none; z-index: 99; }
-#mic-indicator { display: none; }
-
-/* ── LIGHT MODE ── */
-body.light { background: #faf7f2; color: #1a1714; }
-body.light #controls { background: #f0ece4; border-bottom-color: #e2ddd5; }
-body.light .ctrl-btn { color: #7a7168; border-color: #d0c8be; }
-body.light .ctrl-btn:hover { border-color: #1a1714; color: #1a1714; }
-body.light #startBtn { background: #d4eddf; color: #1a5c30; border-color: #a8d8b8; }
-body.light #startBtn.active { background: #f0d4d4; color: #7a1a1a; border-color: #d8a8a8; }
-body.light .status-pill { background: #e8e2da; border-color: #d0c8be; }
-body.light #status { color: #7a7168; }
-body.light #status.listening { color: #1a6b35; }
-body.light #status.translating { color: #7a5c1a; }
-body.light #status.error { color: #b84c4c; }
-body.light .status-dot.listening { background: #2ecc71; }
-body.light .status-dot.translating { background: #c9a84c; }
-body.light .ctrl-topic-label { color: #7a7168; }
-body.light input[type="text"] { background: #ffffff; border-color: #d0c8be; color: #1a1714; }
-body.light input[type="text"]:focus { border-color: #7a7168; background: #ffffff; }
-body.light input[type="text"]::placeholder { color: #b0a898; }
-body.light .ctrl-divider { background: #d0c8be; }
-body.light #display { background: #faf7f2; }
-body.light #placeholder { color: #e2ddd5; }
-body.light #display::-webkit-scrollbar-thumb { background: #d0c8be; }
-body.light .tline.newest { color: #1a1714; text-shadow: none; }
-body.light .tline.oldest { color: #1a1714; text-shadow: none; }
-body.light .tline.entering { opacity: 0; transform: translateY(30px); }
-body.light #streaming-line { color: #7a7168; text-shadow: none; }
-body.light #streaming-cursor { background: #7a7168; }
-body.light #interim-text { color: #b0a898; }
-body.light #new-indicator { background: #d4eddf; color: #1a5c30; border-color: #a8d8b8; }
-body.light #debug-badge { color: #d0c8be; background: #f0ece4; border-color: #e2ddd5; }
-body.light #error-box { background: #fdf0f0; border-top-color: #e8c4c4; color: #b84c4c; }
-body.light .tline-input { border-bottom-color: #d0c8be; color: #1a1714; }
-body.light .tline-input:focus { border-bottom-color: #1a1714; }
-body.light .edit-hint { background: #f0ece4; border-color: #d0c8be; color: #7a7168; }
-body.light #transcript-panel { background: #f0ece4; border-left-color: #e2ddd5; }
-body.light #transcript-panel-header { background: #e8e2da; border-bottom-color: #d0c8be; }
-body.light #transcript-panel-header span { color: #1a1714; }
-body.light #transcriptCloseBtn { background: #d8d0c4; color: #1a1714; border-color: #c8c0b4; }
-body.light .transcript-ko { color: #5a5248; }
-body.light .transcript-en { color: #9a9088; }
-body.light .transcript-ts { color: #c0b8b0; }
-body.light .transcript-entry { border-bottom-color: #e2ddd5; }
-body.light #transcript-export-btn { background: #e8e2da; border-color: #d0c8be; color: #7a7168; }
-body.light #transcript-export-btn:hover { background: #e0d8d0; color: #1a1714; }
-body.light #auth-gate { background: #faf7f2; }
-body.light #auth-gate p { color: #7a7168; }
-
-/* ── AUTH GATE ── */
-#auth-gate { position: fixed; inset: 0; background: #0a0a0a; display: flex; align-items: center; justify-content: center; z-index: 999; flex-direction: column; gap: 16px; }
-#auth-gate p { color: #555; font-size: 14px; }
-#auth-gate a { color: #c9a84c; text-decoration: none; font-size: 14px; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — SermonLive</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --cream: #faf7f2; --ink: #1a1714; --muted: #7a7168; --gold: #c9a84c; --gold-light: #f5edd6; --error: #b84c4c; --border: #e2ddd5; --white: #ffffff; }
+    body { background: var(--cream); color: var(--ink); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+    .nav { background: var(--white); border-bottom: 1px solid var(--border); padding: 0 32px; height: 60px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+    .nav-brand { font-family: 'Lora', serif; font-size: 17px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+    .nav-brand span { color: var(--gold); }
+    .nav-right { display: flex; align-items: center; gap: 16px; }
+    .nav-user { font-size: 13px; color: var(--muted); }
+    .btn-ghost { background: none; border: 1px solid var(--border); border-radius: 3px; padding: 7px 14px; font-family: 'DM Sans', sans-serif; font-size: 13px; color: var(--ink); cursor: pointer; transition: border-color 0.15s; }
+    .btn-ghost:hover { border-color: var(--ink); }
+    .main { max-width: 900px; margin: 0 auto; padding: 40px 24px 80px; }
+    .page-title { margin-bottom: 32px; }
+    .page-title h1 { font-family: 'Lora', serif; font-size: 28px; font-weight: 600; margin-bottom: 4px; }
+    .page-title p { font-size: 14px; color: var(--muted); }
+    .card { background: var(--white); border: 1px solid var(--border); border-radius: 4px; padding: 28px 32px; margin-bottom: 24px; }
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .card-title { font-family: 'Lora', serif; font-size: 17px; font-weight: 600; }
+    .card-subtitle { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .url-box { display: flex; align-items: center; gap: 10px; background: var(--cream); border: 1px solid var(--border); border-radius: 3px; padding: 10px 14px; }
+    .url-box span { flex: 1; font-size: 14px; color: var(--ink); word-break: break-all; }
+    .btn-copy { background: none; border: 1px solid var(--border); border-radius: 3px; padding: 6px 12px; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+    .btn-copy:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-copy.copied { border-color: #2d6a3f; color: #2d6a3f; }
+    .btn-primary { padding: 9px 18px; background: var(--ink); color: white; border: none; border-radius: 3px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: background 0.15s; white-space: nowrap; }
+    .btn-primary:hover { background: #2e2a26; }
+    .btn-primary:disabled { background: #c4bdb4; cursor: not-allowed; }
+    .btn-danger { padding: 7px 14px; background: #b84c4c; color: white; border: none; border-radius: 3px; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+    .btn-danger:hover { background: #9e3e3e; }
+    .btn-restore { padding: 7px 14px; background: none; border: 1px solid var(--border); color: var(--ink); border-radius: 3px; font-family: 'DM Sans', sans-serif; font-size: 12px; cursor: pointer; transition: border-color 0.15s; }
+    .btn-restore:hover { border-color: var(--ink); }
+    label { display: block; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 6px; }
+    input[type="text"], input[type="email"] { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 3px; font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--ink); background: var(--cream); outline: none; transition: border-color 0.15s, background 0.15s; }
+    input[type="text"]:focus, input[type="email"]:focus { border-color: var(--gold); background: white; }
+    input::placeholder { color: #c4bdb4; }
+    .member-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+    .member-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--cream); border: 1px solid var(--border); border-radius: 3px; }
+    .member-info { display: flex; flex-direction: column; gap: 2px; }
+    .member-name { font-size: 14px; font-weight: 500; }
+    .member-email { font-size: 12px; color: var(--muted); }
+    .badge { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 2px; background: var(--gold-light); color: #7a5c1a; }
+    .badge.owner { background: #e8f0fe; color: #2a4db5; }
+    .invite-form { display: flex; gap: 10px; align-items: flex-end; }
+    .invite-form .field { flex: 1; }
+    .divider { height: 1px; background: var(--border); margin: 20px 0; }
+    .sessions-area { display: flex; flex-direction: column; gap: 8px; }
+    .folder-group { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+    .folder-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--cream); cursor: pointer; user-select: none; transition: background 0.15s; }
+    .folder-header:hover { background: #f0ece4; }
+    .folder-chevron { font-size: 10px; color: var(--muted); transition: transform 0.2s; display: inline-block; }
+    .folder-chevron.open { transform: rotate(90deg); }
+    .folder-icon { font-size: 15px; }
+    .folder-name { font-size: 14px; font-weight: 500; flex: 1; }
+    .folder-count { font-size: 12px; color: var(--muted); }
+    .folder-actions { display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
+    .folder-header:hover .folder-actions { opacity: 1; }
+    .folder-action-btn { background: none; border: 1px solid var(--border); border-radius: 3px; padding: 3px 8px; font-size: 11px; color: var(--muted); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+    .folder-action-btn:hover { border-color: var(--ink); color: var(--ink); }
+    .folder-action-btn.del:hover { border-color: var(--error); color: var(--error); }
+    .folder-body { display: none; border-top: 1px solid var(--border); }
+    .folder-body.open { display: block; }
+    .session-item { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; background: var(--white); border-bottom: 1px solid var(--border); gap: 12px; }
+    .session-item:last-child { border-bottom: none; }
+    .session-item.ungrouped { border: 1px solid var(--border); border-radius: 3px; }
+    .session-info { flex: 1; cursor: pointer; }
+    .session-title { font-size: 14px; font-weight: 500; margin-bottom: 3px; transition: color 0.15s; }
+    .session-info:hover .session-title { color: var(--gold); }
+    .session-meta { font-size: 12px; color: var(--muted); }
+    .session-controls { display: flex; align-items: center; gap: 8px; position: relative; }
+    .menu-btn { background: none; border: 1px solid transparent; border-radius: 3px; padding: 4px 8px; font-size: 16px; color: var(--muted); cursor: pointer; line-height: 1; transition: all 0.15s; }
+    .menu-btn:hover { border-color: var(--border); color: var(--ink); }
+    .dropdown { position: absolute; right: 0; top: 100%; background: var(--white); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 20px rgba(26,23,20,0.1); min-width: 160px; z-index: 50; display: none; overflow: hidden; }
+    .dropdown.open { display: block; }
+    .dropdown-item { display: block; width: 100%; padding: 10px 14px; font-size: 13px; font-family: 'DM Sans', sans-serif; color: var(--ink); background: none; border: none; text-align: left; cursor: pointer; transition: background 0.1s; }
+    .dropdown-item:hover { background: var(--cream); }
+    .dropdown-item.danger { color: var(--error); }
+    .dropdown-item.danger:hover { background: #fdf0f0; }
+    .dropdown-divider { height: 1px; background: var(--border); margin: 4px 0; }
+    .trash-section { margin-top: 8px; }
+    .trash-header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--cream); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; font-size: 13px; color: var(--muted); user-select: none; transition: color 0.15s; }
+    .trash-header:hover { color: var(--ink); }
+    .trash-body { display: none; border: 1px solid var(--border); border-top: none; border-radius: 0 0 3px 3px; overflow: hidden; }
+    .trash-body.open { display: block; }
+    .trash-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #fdf8f4; border-bottom: 1px solid var(--border); gap: 12px; flex-wrap: wrap; }
+    .trash-item:last-child { border-bottom: none; }
+    .trash-info { flex: 1; }
+    .trash-title { font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: line-through; }
+    .trash-meta { font-size: 12px; color: #c4bdb4; margin-top: 2px; }
+    .trash-controls { display: flex; gap: 8px; }
+    .new-folder-row { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; }
+    .new-folder-row input { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 3px; font-family: 'DM Sans', sans-serif; font-size: 13px; background: var(--cream); outline: none; color: var(--ink); transition: border-color 0.15s; }
+    .new-folder-row input:focus { border-color: var(--gold); background: white; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(26,23,20,0.4); display: none; align-items: center; justify-content: center; padding: 24px; z-index: 100; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: white; border: 1px solid var(--border); border-radius: 4px; padding: 32px; width: 100%; max-width: 400px; box-shadow: 0 8px 40px rgba(26,23,20,0.12); }
+    .modal h2 { font-family: 'Lora', serif; font-size: 20px; margin-bottom: 16px; }
+    .folder-option { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border: 1px solid var(--border); border-radius: 3px; margin-bottom: 8px; cursor: pointer; font-size: 14px; transition: all 0.15s; }
+    .folder-option:hover { border-color: var(--gold); background: var(--gold-light); }
+    .modal-cancel { margin-top: 8px; width: 100%; padding: 10px; background: none; border: 1px solid var(--border); border-radius: 3px; font-family: 'DM Sans', sans-serif; font-size: 14px; cursor: pointer; transition: border-color 0.15s; }
+    .modal-cancel:hover { border-color: var(--ink); }
+    .empty-state { text-align: center; padding: 24px; color: var(--muted); font-size: 14px; background: var(--cream); border: 1px dashed var(--border); border-radius: 3px; }
+    .loading { text-align: center; padding: 60px; color: var(--muted); font-size: 14px; }
+    .error-msg { background: #fdf0f0; border: 1px solid #e8c4c4; border-radius: 3px; padding: 10px 14px; font-size: 13px; color: var(--error); margin-bottom: 16px; display: none; }
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--ink); color: white; padding: 12px 20px; border-radius: 4px; font-size: 13px; font-weight: 500; opacity: 0; transform: translateY(8px); transition: all 0.2s; pointer-events: none; z-index: 200; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.4); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 8px; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
 </head>
 <body>
 
-<!-- Auth gate shown while verifying operator, hidden for viewers -->
-<div id="auth-gate" style="display:none">
-  <p id="auth-gate-msg">Verifying your access…</p>
-  <a href="../login.html" id="auth-gate-link" style="display:none">Sign in →</a>
-</div>
-
-<div id="controls">
-  <!-- Buttons in order: Start, Clear, Export, Korean, Status pill, Context -->
-  <div class="ctrl-left">
-    <button id="startBtn" onclick="toggleListening()">▶ Start</button>
-    <button id="clearBtn" class="ctrl-btn" onclick="clearTranslations()">Clear</button>
-    <button id="exportBtn" class="ctrl-btn" onclick="exportTranslations()">Export</button>
-    <button id="transcriptBtn" class="ctrl-btn" onclick="toggleTranscriptPanel()">Korean</button>
-    <div class="status-pill" id="statusPill">
-      <div class="status-dot" id="statusDot"></div>
-      <span id="status">Stopped</span>
+  <nav class="nav">
+    <div class="nav-brand">✦ <span>SermonLive</span></div>
+    <div class="nav-right">
+      <span class="nav-user" id="navUser"></span>
+      <button class="btn-ghost" onclick="handleSignOut()">Sign out</button>
     </div>
-    <div class="ctrl-divider"></div>
-    <div class="ctrl-topic-wrap">
-      <span class="ctrl-topic-label">Context</span>
-      <input type="text" id="sermonContext" placeholder="Sermon topic, scripture, key names (helps accuracy)" />
-    </div>
-  </div>
-  <div class="ctrl-right">
-    <button id="themeBtn" class="ctrl-btn" onclick="toggleTheme()" title="Toggle light/dark mode">☀</button>
-    <button id="fullscreenBtn" class="ctrl-btn" onclick="toggleFullscreen()">⛶</button>
-  </div>
-</div>
-<div id="error-box"></div>
+  </nav>
 
-<div id="display">
-  <div id="translation-box">
-    <div id="placeholder"><h1 id="church-name">LIVE TRANSLATION</h1></div>
-    <div id="translation-lines"></div>
-    <div id="interim-box">
-      <div id="streaming-line" class="empty">
-        <span id="streaming-text"></span><span id="streaming-cursor" style="display:none"></span>
+  <div id="loadingState" class="loading">Loading your dashboard…</div>
+
+  <div class="main" id="mainContent" style="display:none">
+
+    <div class="page-title">
+      <h1 id="churchTitle">Your Church</h1>
+      <p>Manage your live translation sessions and team.</p>
+    </div>
+
+    <!-- Viewer URL -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Congregation viewer link</div>
+          <div class="card-subtitle">Share this with your congregation — no login required</div>
+        </div>
       </div>
-      <div id="interim-text"></div>
+      <div class="url-box">
+        <span id="viewerUrl"></span>
+        <button class="btn-copy" id="copyViewerBtn" onclick="copyUrl('viewerUrl','copyViewerBtn')">Copy</button>
+      </div>
+    </div>
+
+    <!-- Operator URL -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Operator view</div>
+          <div class="card-subtitle">Open on the operator's computer — they control the session</div>
+        </div>
+      </div>
+      <div class="url-box">
+        <span id="operatorUrl"></span>
+        <button class="btn-copy" id="copyOperatorBtn" onclick="copyUrl('operatorUrl','copyOperatorBtn')">Copy</button>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:12px;">The operator must be signed in to use this link.</p>
+    </div>
+
+    <!-- Team -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Team</div>
+          <div class="card-subtitle">Members who can operate translations and review sessions</div>
+        </div>
+      </div>
+      <div class="member-list" id="memberList"><div class="empty-state">No members yet</div></div>
+      <div class="divider"></div>
+      <div style="margin-bottom:10px"><strong style="font-size:14px">Invite a member</strong></div>
+      <div class="error-msg" id="inviteError"></div>
+      <div class="invite-form">
+        <div class="field"><label>Name</label><input type="text" id="inviteName" placeholder="Full name" onkeydown="if(event.key==='Enter') inviteMember()" /></div>
+        <div class="field"><label>Email</label><input type="email" id="inviteEmail" placeholder="operator@church.org" onkeydown="if(event.key==='Enter') inviteMember()" /></div>
+        <button class="btn-primary" id="inviteBtn" onclick="inviteMember()">Invite</button>
+      </div>
+    </div>
+
+    <!-- Sessions -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Sessions</div>
+          <div class="card-subtitle">Past sermon translations, organized by series</div>
+        </div>
+        <button class="btn-ghost" onclick="toggleNewFolder()">+ New folder</button>
+      </div>
+
+      <div id="newFolderRow" class="new-folder-row" style="display:none">
+        <input type="text" id="newFolderInput" placeholder="Folder name (e.g. Genesis Series, 2025)"
+          onkeydown="if(event.key==='Enter') createFolder(); if(event.key==='Escape') toggleNewFolder()" />
+        <button class="btn-primary" onclick="createFolder()">Create</button>
+        <button class="btn-ghost" onclick="toggleNewFolder()">Cancel</button>
+      </div>
+
+      <div class="sessions-area" id="sessionsArea">
+        <div class="empty-state">No sessions yet</div>
+      </div>
+
+      <div class="trash-section" id="trashSection" style="display:none">
+        <div class="trash-header" onclick="toggleTrash()">
+          <span>🗑</span>
+          <span>Trash</span>
+          <span id="trashCount" style="margin-left:4px"></span>
+          <span style="margin-left:auto;font-size:11px" id="trashChevron">▶</span>
+        </div>
+        <div class="trash-body" id="trashBody">
+          <div id="trashList"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Move to folder modal -->
+  <div class="modal-overlay" id="moveModal">
+    <div class="modal">
+      <h2>Move to folder</h2>
+      <div id="folderOptions"></div>
+      <button class="modal-cancel" onclick="closeMoveModal()">Cancel</button>
     </div>
   </div>
-</div>
 
-<div id="transcript-panel">
-  <div id="transcript-panel-header">
-    <span>🇰🇷 Korean Transcript</span>
-    <button id="transcriptCloseBtn" onclick="toggleTranscriptPanel()">✕ Close</button>
-  </div>
-  <div id="transcript-list"></div>
-  <button id="transcript-export-btn" onclick="exportTranscript()">⬇ Copy Korean transcript</button>
-</div>
+  <div class="toast" id="toast"></div>
 
-<div id="edit-hint" class="edit-hint">Double-click any line to edit · Enter to save · Esc to cancel</div>
-<div id="new-indicator" onclick="jumpToBottom()">New translation ↓</div>
-<div id="mic-indicator"></div>
-<div id="debug-badge">ready</div>
+  <script>
+    var SUPABASE_URL      = 'https://zhrkwgpjvgessiqmmefn.supabase.co';
+    var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpocmt3Z3Bqdmdlc3NpcW1tZWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTUzMjksImV4cCI6MjA5MDQ3MTMyOX0.JoDcJXtL5il1sprbdf2M3XyyyN7BtdwmwY3hP3BrQ8Q';
+    var supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-<script>
-// ── CONFIG ────────────────────────────────────────────────────────────────────
-var WORKER_URL      = 'https://live-translation.pauljkim22.workers.dev';
-var MODEL           = 'claude-sonnet-4-6';
-var SILENCE_MS      = 12000;
-var MAX_CHARS       = 500;
-var FORCE_COMMIT_MS = 20000;
-var PROACTIVE_MS    = 25000;
-var MAX_LINES       = 500;
-var isNearBottom    = true;
+    var firebaseConfig = {
+      apiKey: "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
+      authDomain: "live-translation-fd583.firebaseapp.com",
+      databaseURL: "https://live-translation-fd583-default-rtdb.firebaseio.com",
+      projectId: "live-translation-fd583",
+      storageBucket: "live-translation-fd583.firebasestorage.app",
+      messagingSenderId: "189364035896",
+      appId: "1:189364035896:web:552700e29449859089a1cd"
+    };
+    firebase.initializeApp(firebaseConfig);
+    var fbDb = firebase.database();
 
-var SUPABASE_URL     = 'https://zhrkwgpjvgessiqmmefn.supabase.co';
-var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpocmt3Z3Bqdmdlc3NpcW1tZWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTUzMjksImV4cCI6MjA5MDQ3MTMyOX0.JoDcJXtL5il1sprbdf2M3XyyyN7BtdwmwY3hP3BrQ8Q';
-var supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    var currentUser    = null;
+    var currentChurch  = null;
+    var allSessions    = [];
+    var allFolders     = [];
+    var movingSessionId = null;
+    var openMenuId     = null;
 
-// ── URL PARAMS ────────────────────────────────────────────────────────────────
-var params      = new URLSearchParams(window.location.search);
-var churchSlug  = params.get('church') || '';
-var isOperator  = params.has('operator');
-var isReview    = params.has('review');
-
-// Hide controls immediately if not operator — don't wait for auth
-if (!isOperator) {
-  document.getElementById('controls').style.display = 'none';
-  document.getElementById('streaming-line').style.display = 'none';
-  document.getElementById('interim-text').style.display = 'none';
-  document.getElementById('debug-badge').style.display = 'none';
-  document.getElementById('mic-indicator').style.display = 'none';
-}
-
-// ── FIREBASE ──────────────────────────────────────────────────────────────────
-var firebaseConfig = {
-  apiKey:            "AIzaSyCqzFwELPmWwDWrbTILL1L-opT0xlKMOPs",
-  authDomain:        "live-translation-fd583.firebaseapp.com",
-  databaseURL:       "https://live-translation-fd583-default-rtdb.firebaseio.com",
-  projectId:         "live-translation-fd583",
-  storageBucket:     "live-translation-fd583.firebasestorage.app",
-  messagingSenderId: "189364035896",
-  appId:             "1:189364035896:web:552700e29449859089a1cd"
-};
-firebase.initializeApp(firebaseConfig);
-var db   = firebase.database();
-var auth = firebase.auth();
-
-// translationsRef is set after we know the church slug + session id
-var translationsRef     = null;
-var currentSessionId    = null;
-var currentChurchName   = '';
-
-function $(id) { return document.getElementById(id); }
-
-// ── SCROLL TRACKING ───────────────────────────────────────────────────────────
-var displayEl = $('display');
-
-function setTopSpacer() {
-  var linesEl = $('translation-lines');
-  var h = displayEl.clientHeight;
-  if (h > 0) linesEl.style.paddingTop = h * 0.7 + 'px';
-}
-document.addEventListener('DOMContentLoaded', setTopSpacer);
-window.addEventListener('resize', setTopSpacer);
-
-displayEl.addEventListener('scroll', function() {
-  var threshold = 80;
-  isNearBottom = displayEl.scrollHeight - displayEl.scrollTop - displayEl.clientHeight < threshold;
-  if (isNearBottom) $('new-indicator').style.display = 'none';
-});
-
-function scrollToBottom() {
-  displayEl.scrollTo({ top: displayEl.scrollHeight, behavior: 'smooth' });
-}
-function jumpToBottom() {
-  scrollToBottom();
-  $('new-indicator').style.display = 'none';
-}
-
-// ── AUTH GATE HELPERS ─────────────────────────────────────────────────────────
-function showAuthGate(msg, showLink) {
-  var gate = $('auth-gate');
-  gate.style.display = 'flex';
-  $('auth-gate-msg').textContent = msg;
-  if (showLink) $('auth-gate-link').style.display = 'block';
-}
-function hideAuthGate() {
-  $('auth-gate').style.display = 'none';
-}
-
-// ── MAIN INIT ─────────────────────────────────────────────────────────────────
-// No church slug = show error
-if (!churchSlug) {
-  document.addEventListener('DOMContentLoaded', function() {
-    showAuthGate('No church specified. Please use a valid link.');
-  });
-} else if (isOperator) {
-  // Operator: must be logged in via Supabase and belong to this church
-  showAuthGate('Verifying your access…', false);
-  initOperator();
-} else {
-  // Viewer / review: no login needed
-  auth.signInAnonymously().catch(function(err) {
-    console.warn('Firebase anon auth error:', err.message);
-  });
-  initViewer();
-}
-
-// ── OPERATOR INIT ─────────────────────────────────────────────────────────────
-async function initOperator() {
-  try {
-    // 1. Check Supabase session
-    var { data: { user } } = await supa.auth.getUser();
-    if (!user) {
-      showAuthGate('You need to sign in to use the operator view.', true);
-      return;
+    function showToast(msg) {
+      var t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(function() { t.classList.remove('show'); }, 3000);
     }
 
-    // 2. Load profile and verify church membership
-    var { data: profile, error: profileError } = await supa
-      .from('profiles')
-      .select('*, churches(*)')
-      .eq('id', user.id)
-      .single();
+    async function init() {
+      var { data: { user } } = await supa.auth.getUser();
+      if (!user) return window.location.href = 'login.html';
+      currentUser = user;
+      document.getElementById('navUser').textContent = user.email;
 
-    if (profileError || !profile) {
-      showAuthGate('Could not load your profile. Please sign in again.', true);
-      return;
+      var { data: profile } = await supa
+        .from('profiles')
+        .select('*, churches(*)')
+        .eq('id', user.id)
+        .single();
+
+      if (!profile) return window.location.href = 'login.html';
+      currentChurch = profile.churches;
+
+      document.getElementById('churchTitle').textContent = currentChurch.name;
+      document.title = currentChurch.name + ' — Dashboard';
+
+      var base = window.location.origin;
+      document.getElementById('viewerUrl').textContent   = base + '/app/?church=' + currentChurch.slug;
+      document.getElementById('operatorUrl').textContent = base + '/app/?church=' + currentChurch.slug + '&operator';
+
+      document.getElementById('loadingState').style.display = 'none';
+      document.getElementById('mainContent').style.display  = 'block';
+
+      await Promise.all([loadMembers(), loadFolders(), loadSessions()]);
+      renderSessions();
     }
 
-    if (profile.churches.slug !== churchSlug) {
-      showAuthGate('You do not have access to this church\'s operator view.', false);
-      return;
-    }
-
-    // 3. All good — operator is verified, session will be created on Start
-    currentChurchName = profile.churches.name;
-
-    // Firebase anon auth for writes
-    auth.signInAnonymously().catch(function(err) {
-      console.warn('Firebase anon auth error:', err.message);
-    });
-
-    window._operatorAuthReady = false;
-    auth.onAuthStateChanged(function(u) {
-      if (u) { window._operatorAuthReady = true; dbg('auth:' + u.uid.slice(0,8)); }
-    });
-
-    hideAuthGate();
-    $('church-name').textContent = currentChurchName.toUpperCase();
-    if ($('ctrl-church-name')) $('ctrl-church-name').textContent = currentChurchName.toUpperCase();
-    dbg('operator ready | ' + churchSlug);
-
-  } catch(err) {
-    showAuthGate('Something went wrong: ' + err.message, true);
-  }
-}
-
-// ── VIEWER INIT ───────────────────────────────────────────────────────────────
-function initViewer() {
-  var domReady  = false;
-  var authReady = false;
-  var authUser  = null;
-
-  async function maybeInitViewer() {
-    if (!domReady || !authReady || !authUser) return;
-
-    // Look up active session for this church via Supabase
-    var { data: church } = await supa
-      .from('churches')
-      .select('id, name')
-      .eq('slug', churchSlug)
-      .single();
-
-    if (!church) {
-      $('church-name').textContent = 'CHURCH NOT FOUND';
-      return;
-    }
-
-    currentChurchName = church.name;
-    $('church-name').textContent = church.name.toUpperCase();
-
-    var { data: session } = await supa
-      .from('sessions')
-      .select('id')
-      .eq('church_id', church.id)
-      .is('ended_at', null)
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!session) {
-      $('church-name').textContent = church.name.toUpperCase();
-      // No active session — show waiting message
-      $('placeholder').innerHTML = '<h1>' + escHtml(church.name.toUpperCase()) + '</h1><p style="color:#333;font-size:16px;margin-top:20px;font-weight:300;letter-spacing:2px;">Waiting for service to begin…</p>';
-      // Poll every 15s for a session to start
-      setTimeout(function() { location.reload(); }, 15000);
-      return;
-    }
-
-    currentSessionId = session.id;
-    translationsRef  = db.ref('translations/' + churchSlug + '/' + currentSessionId);
-
-    $('controls').style.display       = 'none';
-    $('error-box').style.display      = 'none';
-    $('streaming-line').style.display = 'none';
-    $('interim-text').style.display   = 'none';
-    $('debug-badge').style.display    = 'none';
-    $('mic-indicator').style.display  = 'none';
-
-    var seenKeys = new Set();
-
-    translationsRef.on('value', function(snap) {
-      if (!snap.val()) {
-        $('translation-lines').innerHTML = '';
-        $('placeholder').style.display   = 'block';
-        seenKeys.clear();
-      }
-    });
-
-    translationsRef.limitToLast(500).once('value', function(snap) {
-      snap.forEach(function(child) {
-        seenKeys.add(child.key);
-        var it = child.val();
-        if (it && it.text) displayFinalLine(it.text);
+    function copyUrl(spanId, btnId) {
+      var url = document.getElementById(spanId).textContent;
+      navigator.clipboard.writeText(url).then(function() {
+        var btn = document.getElementById(btnId);
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
       });
-      setTimeout(scrollToBottom, 100);
-
-      translationsRef.on('child_added', function(snap) {
-        if (seenKeys.has(snap.key)) return;
-        seenKeys.add(snap.key);
-        var it = snap.val();
-        if (it && it.text) displayFinalLine(it.text);
-      });
-
-      translationsRef.on('child_changed', function(snap) {
-        var it = snap.val();
-        if (it && it.text) {
-          var el = document.querySelector('[data-fbkey="' + snap.key + '"]');
-          if (el) el.textContent = it.text;
-        }
-      });
-    });
-  }
-
-  document.addEventListener('DOMContentLoaded', function() { domReady = true; maybeInitViewer(); });
-  auth.onAuthStateChanged(function(user) { authReady = true; authUser = user; maybeInitViewer(); });
-}
-
-// ── OPERATOR STATE ────────────────────────────────────────────────────────────
-var rec               = null;
-var recNext           = null;
-var isListening       = false;
-var silenceTimer      = null;
-var forceCommitTimer  = null;
-var watchdogTimer     = null;
-var proactiveTimer    = null;
-var isTranslating     = false;
-var translatingWatchdog = null;
-var translationQueue  = [];
-var historyLog        = [];
-var autoSermonContext  = '';
-var contextUpdateCounter = 0;
-var fullTranscript    = '';
-var cursor            = 0;
-var lastFirebaseKey   = null;
-var lastActivityTime  = 0;
-var lastCommittedText = '';
-var koTranscriptLog   = [];
-
-// ── UI HELPERS ────────────────────────────────────────────────────────────────
-function showError(msg) { $('error-box').style.display = 'block'; $('error-box').textContent = msg; setStatus('Error', 'error'); }
-function clearError()   { $('error-box').style.display = 'none'; }
-function setStatus(msg, cls) {
-  $('status').textContent = msg;
-  $('status').className = cls || '';
-  var dot = $('statusDot');
-  if (dot) { dot.className = 'status-dot' + (cls ? ' ' + cls : ''); }
-}
-function dbg(msg) { var el = $('debug-badge'); if (el) el.textContent = msg; }
-
-// ── TRANSLATING LOCK WITH WATCHDOG ────────────────────────────────────────────
-function setTranslating(val) {
-  isTranslating = val;
-  clearTimeout(translatingWatchdog);
-  if (val) {
-    translatingWatchdog = setTimeout(function() {
-      if (!isTranslating) return;
-      dbg('translating watchdog fired');
-      isTranslating = false;
-      setStatus('🎤 Listening...', 'listening');
-      processQueue();
-    }, 35000);
-  }
-}
-
-// ── EXPORT ────────────────────────────────────────────────────────────────────
-function exportTranslations() {
-  var lines = $('translation-lines').querySelectorAll('.tline');
-  if (!lines.length) { alert('No translations to export.'); return; }
-  var text = Array.from(lines).map(function(el) { return el.textContent.trim(); }).join('\n\n');
-  navigator.clipboard.writeText(text).then(function() {
-    var btn = $('exportBtn');
-    btn.textContent = '✓ Copied!';
-    setTimeout(function() { btn.textContent = '⬇ Export'; }, 2000);
-  }).catch(function() {
-    var ta = document.createElement('textarea');
-    ta.value = text; document.body.appendChild(ta); ta.select();
-    document.execCommand('copy'); document.body.removeChild(ta);
-    var btn = $('exportBtn');
-    btn.textContent = '✓ Copied!';
-    setTimeout(function() { btn.textContent = '⬇ Export'; }, 2000);
-  });
-}
-
-// ── KOREAN TRANSCRIPT PANEL ───────────────────────────────────────────────────
-var transcriptPanelOpen = false;
-function toggleTranscriptPanel() {
-  transcriptPanelOpen = !transcriptPanelOpen;
-  $('transcript-panel').classList.toggle('open', transcriptPanelOpen);
-  $('transcriptBtn').style.background = transcriptPanelOpen ? '#2a4a2a' : '#444';
-  $('transcriptBtn').style.color = transcriptPanelOpen ? '#2ecc71' : '#ccc';
-}
-
-function addTranscriptEntry(koText, enText) {
-  var ts = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  koTranscriptLog.push({ ko: koText, en: enText || '', ts: ts });
-  var list = $('transcript-list');
-  var entry = document.createElement('div');
-  entry.className = 'transcript-entry';
-  entry.innerHTML =
-    '<div class="transcript-ko">' + escHtml(koText) + '</div>' +
-    (enText ? '<div class="transcript-en">' + escHtml(enText) + '</div>' : '') +
-    '<div class="transcript-ts">' + ts + '</div>';
-  list.appendChild(entry);
-  list.scrollTop = list.scrollHeight;
-}
-
-function exportTranscript() {
-  if (!koTranscriptLog.length) { alert('No Korean transcript yet.'); return; }
-  var lines = koTranscriptLog.map(function(e) {
-    return '[' + e.ts + ']\n' + e.ko + (e.en ? '\n→ ' + e.en : '');
-  }).join('\n\n');
-  navigator.clipboard.writeText(lines).then(function() {
-    var btn = $('transcript-export-btn');
-    btn.textContent = '✓ Copied!';
-    setTimeout(function() { btn.textContent = '⬇ Copy Korean transcript'; }, 2000);
-  }).catch(function() {});
-}
-
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-function toggleTheme() {
-  var isLight = document.body.classList.toggle('light');
-  localStorage.setItem('theme', isLight ? 'light' : 'dark');
-  var btn = $('themeBtn');
-  if (btn) btn.textContent = isLight ? '☾' : '☀';
-}
-
-// Apply saved theme on load
-(function() {
-  var saved = localStorage.getItem('theme');
-  if (saved === 'light') {
-    document.body.classList.add('light');
-    document.addEventListener('DOMContentLoaded', function() {
-      var btn = $('themeBtn');
-      if (btn) btn.textContent = '☾';
-    });
-  }
-})();
-
-function toggleFullscreen() {
-  if (!document.fullscreenElement) { document.documentElement.requestFullscreen(); $('controls').style.display = 'none'; }
-  else { document.exitFullscreen(); $('controls').style.display = 'flex'; }
-}
-
-function reclassLines() {
-  var all = $('translation-lines').querySelectorAll('.tline');
-  all.forEach(function(el, i) {
-    el.classList.remove('newest', 'oldest');
-    if (all.length - 1 - i <= 2) el.classList.add('newest');
-    else el.classList.add('oldest');
-  });
-}
-
-// ── ensurePunctuation ─────────────────────────────────────────────────────────
-function ensurePunctuation(text) {
-  if (!text) return text;
-  text = text.trim();
-  text = text.replace(/,([.!?])(["'\u201d]?)$/, '$1$2');
-  text = text.replace(/,(["'\u201d])$/, '$1');
-  var straightCount   = (text.match(/"/g) || []).length;
-  var hasOpenStraight = straightCount % 2 !== 0;
-  var curlyOpen       = (text.match(/\u201c/g) || []).length;
-  var curlyClose      = (text.match(/\u201d/g) || []).length;
-  var hasOpenCurly    = curlyOpen > curlyClose;
-  var needsCloseQuote = hasOpenStraight || hasOpenCurly;
-  var closeQ          = hasOpenCurly ? '\u201d' : '"';
-  var core = text.replace(/["'\u201d]$/, '');
-  var endsWithPunct = /[.!?]$/.test(core) || /[.!?]["'\u201d]$/.test(text);
-  if (endsWithPunct) {
-    if (needsCloseQuote && !/["'\u201d]$/.test(text)) return text + closeQ;
-    return text;
-  }
-  if (/["'\u201d]$/.test(text)) return text.slice(0, -1) + '.' + text.slice(-1);
-  if (needsCloseQuote) return text + '.' + closeQ;
-  return text + '.';
-}
-
-// ── INLINE EDITING ────────────────────────────────────────────────────────────
-var editHintTimer = null;
-function showEditHint() {
-  var hint = $('edit-hint');
-  hint.classList.add('show');
-  clearTimeout(editHintTimer);
-  editHintTimer = setTimeout(function() { hint.classList.remove('show'); }, 3000);
-}
-
-function makeLineEditable(div, fbKey) {
-  if (div.querySelector('textarea')) return;
-  showEditHint();
-  var original = div.textContent.trim();
-  div.textContent = '';
-  var input = document.createElement('textarea');
-  input.className = 'tline-input';
-  input.value = original;
-  input.rows = 1;
-  div.appendChild(input);
-  function autoSize() { input.style.height = 'auto'; input.style.height = input.scrollHeight + 'px'; }
-  requestAnimationFrame(function() {
-    autoSize(); input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  });
-  input.addEventListener('input', autoSize);
-  function saveEdit() {
-    var newText = input.value.trim();
-    div.textContent = newText || original;
-    if (newText && newText !== original) {
-      if (fbKey && translationsRef) translationsRef.child(fbKey).update({ text: newText });
-      var idx = historyLog.indexOf(original);
-      if (idx !== -1) historyLog[idx] = newText;
-      for (var i = koTranscriptLog.length - 1; i >= 0; i--) {
-        if (koTranscriptLog[i].en === original) {
-          koTranscriptLog[i].en = newText;
-          var entries = $('transcript-list').querySelectorAll('.transcript-entry');
-          var entry = entries[entries.length - 1 - (koTranscriptLog.length - 1 - i)];
-          if (entry) { var enEl = entry.querySelector('.transcript-en'); if (enEl) enEl.textContent = newText; }
-          break;
-        }
-      }
-    }
-  }
-  function cancelEdit() { div.textContent = original; }
-  input.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); }
-    else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
-  });
-  input.addEventListener('blur', function() { saveEdit(); });
-}
-
-function displayFinalLine(text, fbKey) {
-  $('placeholder').style.display = 'none';
-  var linesEl = $('translation-lines');
-  var div = document.createElement('div');
-  div.className   = 'tline newest entering';
-  div.textContent = text;
-  if (fbKey) div.setAttribute('data-fbkey', fbKey);
-  if (isOperator) {
-    div.addEventListener('dblclick', function() {
-      makeLineEditable(div, fbKey || div.getAttribute('data-fbkey'));
-    });
-    div.title = 'Double-click to edit';
-  }
-  linesEl.appendChild(div);
-  requestAnimationFrame(function() { requestAnimationFrame(function() { div.classList.remove('entering'); }); });
-  while (linesEl.children.length > MAX_LINES) linesEl.removeChild(linesEl.firstChild);
-  reclassLines();
-  if (isNearBottom) { setTimeout(scrollToBottom, 50); }
-  else { $('new-indicator').style.display = 'block'; }
-  return div;
-}
-
-function pushHistory(text) {
-  historyLog.push(text);
-  if (historyLog.length > 8) historyLog.shift();
-}
-
-function setStreamingText(text) {
-  var el = $('streaming-line'), t = $('streaming-text'), cur = $('streaming-cursor');
-  if (!text) { el.classList.add('empty'); t.textContent = ''; cur.style.display = 'none'; }
-  else { $('placeholder').style.display = 'none'; el.classList.remove('empty'); t.textContent = text; cur.style.display = 'inline-block'; }
-}
-
-function clearTranslations() {
-  if (!translationsRef) return;
-  translationsRef.remove();
-  $('translation-lines').innerHTML = '';
-  $('transcript-list').innerHTML = '';
-  setStreamingText('');
-  fullTranscript = ''; cursor = 0;
-  lastFirebaseKey = null; lastCommittedText = '';
-  translationQueue = []; autoSermonContext = '';
-  contextUpdateCounter = 0; koTranscriptLog = [];
-  $('placeholder').style.display   = 'block';
-  $('new-indicator').style.display = 'none';
-}
-
-// ── SPEECH RECOGNITION ────────────────────────────────────────────────────────
-async function toggleListening() {
-  if (isListening) {
-    stopListening();
-    await endSession();
-    return;
-  }
-  // Create a session if none exists
-  if (!translationsRef) {
-    await createSession();
-  }
-  if (translationsRef) startListening();
-}
-
-async function createSession() {
-  var title = 'Service — ' + new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  var churchRes = await supa.from('churches').select('id').eq('slug', churchSlug).single();
-  if (!churchRes.data) { showError('Could not find church.'); return; }
-  var { data: session, error } = await supa
-    .from('sessions')
-    .insert({ church_id: churchRes.data.id, title: title })
-    .select()
-    .single();
-  if (error) { showError('Could not create session: ' + error.message); return; }
-  currentSessionId = session.id;
-  translationsRef = db.ref('translations/' + churchSlug + '/' + currentSessionId);
-  dbg('session:' + currentSessionId.slice(0,8));
-}
-
-async function endSession() {
-  if (!currentSessionId) return;
-  await supa.from('sessions').update({ ended_at: new Date().toISOString() }).eq('id', currentSessionId);
-  currentSessionId = null;
-  translationsRef = null;
-  dbg('session ended');
-}
-
-function startListening() {
-  clearError();
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { showError('Please use Google Chrome.'); return; }
-  isListening      = true;
-  fullTranscript   = '';
-  cursor           = 0;
-  translationQueue = [];
-  lastActivityTime = Date.now();
-  $('startBtn').textContent = '■ Stop';
-  $('startBtn').classList.add('active');
-  $('mic-indicator').style.display = 'block';
-  $('mic-indicator').classList.add('active');
-  setStatus('🎤 Listening...', 'listening');
-  spawnRec();
-  startWatchdog();
-  scheduleProactiveSwap();
-}
-
-function scheduleProactiveSwap() {
-  clearTimeout(proactiveTimer);
-  proactiveTimer = setTimeout(doProactiveSwap, PROACTIVE_MS);
-}
-
-function doProactiveSwap() {
-  if (!isListening) return;
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return;
-  dbg('proactive swap');
-  var unsent = fullTranscript.slice(cursor).trim();
-  if (unsent) commitTranslation();
-  recNext = new SR();
-  recNext.lang = 'ko-KR'; recNext.continuous = true; recNext.interimResults = true;
-  wireRecHandlers(recNext);
-  if (rec) { try { rec.onend = null; rec.stop(); } catch(e) {} rec = null; }
-  setTimeout(function() {
-    if (!isListening) return;
-    rec = recNext; recNext = null;
-    fullTranscript = ''; cursor = 0;
-    lastActivityTime = Date.now();
-    try { rec.start(); } catch(e) {}
-    scheduleForceCommit();
-    scheduleProactiveSwap();
-  }, 150);
-}
-
-function startWatchdog() {
-  clearInterval(watchdogTimer);
-  watchdogTimer = setInterval(function() {
-    if (!isListening) { clearInterval(watchdogTimer); return; }
-    if (Date.now() - lastActivityTime > 5000) {
-      dbg('watchdog restart');
-      if (rec) { try { rec.onend = null; rec.stop(); } catch(e) {} rec = null; }
-      fullTranscript = ''; cursor = 0;
-      lastActivityTime = Date.now();
-      setTimeout(spawnRec, 150);
-    }
-  }, 3000);
-}
-
-function scheduleForceCommit() {
-  clearTimeout(forceCommitTimer);
-  forceCommitTimer = setTimeout(function forceNext() {
-    if (!isListening) return;
-    var unsent = fullTranscript.slice(cursor).trim();
-    if (unsent) commitTranslation();
-    else forceCommitTimer = setTimeout(forceNext, FORCE_COMMIT_MS);
-  }, FORCE_COMMIT_MS);
-}
-
-function wireRecHandlers(r) {
-  r.onresult = function(e) {
-    lastActivityTime = Date.now();
-    var full = '', interimText = '';
-    for (var i = 0; i < e.results.length; i++) {
-      if (e.results[i].isFinal) full += e.results[i][0].transcript;
-      else interimText += e.results[i][0].transcript;
-    }
-    fullTranscript = (full + interimText).trim();
-    var unsent = fullTranscript.slice(cursor).trim();
-    $('interim-text').textContent = interimText
-      ? '"' + interimText.trim() + '"'
-      : (unsent ? '"' + unsent + '"' : '');
-    dbg('len:' + fullTranscript.length + ' cursor:' + cursor + ' unsent:' + unsent.length + ' q:' + translationQueue.length);
-    if (!unsent) return;
-    clearTimeout(silenceTimer);
-    if (unsent.length >= MAX_CHARS) { commitTranslation(); return; }
-    silenceTimer = setTimeout(commitTranslation, SILENCE_MS);
-  };
-  r.onerror = function(e) {
-    if (e.error === 'no-speech' || e.error === 'aborted') return;
-    if (e.error === 'not-allowed') { showError('Microphone access denied.'); stopListening(); }
-  };
-  r.onend = function() {
-    lastActivityTime = Date.now();
-    if (!isListening) return;
-    var unsent = fullTranscript.slice(cursor).trim();
-    if (unsent) enqueueTranslation(unsent);
-    fullTranscript = ''; cursor = 0;
-    clearTimeout(silenceTimer);     silenceTimer     = null;
-    clearTimeout(forceCommitTimer); forceCommitTimer = null;
-    setTimeout(spawnRec, 150);
-  };
-}
-
-function spawnRec() {
-  if (!isListening) return;
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  rec = new SR();
-  rec.lang = 'ko-KR'; rec.continuous = true; rec.interimResults = true;
-  wireRecHandlers(rec);
-  scheduleForceCommit();
-  try { rec.start(); } catch(e) {}
-}
-
-function commitTranslation() {
-  clearTimeout(silenceTimer); silenceTimer = null;
-  var unsent = fullTranscript.slice(cursor).trim();
-  if (!unsent) return;
-  cursor = fullTranscript.length;
-  $('interim-text').textContent = '';
-  scheduleForceCommit();
-  enqueueTranslation(unsent);
-}
-
-function enqueueTranslation(text) {
-  if (!text || text.trim().length < 10) return;
-  var t = text.trim();
-  if (t === lastCommittedText.trim()) { dbg('dedup skip'); return; }
-  lastCommittedText = t;
-  translationQueue.push(t);
-  processQueue();
-}
-
-function processQueue() {
-  if (isTranslating || translationQueue.length === 0) return;
-  triggerTranslation(translationQueue.shift());
-}
-
-function stopListening() {
-  isListening = false;
-  clearTimeout(silenceTimer);     silenceTimer     = null;
-  clearTimeout(forceCommitTimer); forceCommitTimer = null;
-  clearTimeout(proactiveTimer);   proactiveTimer   = null;
-  clearInterval(watchdogTimer);   watchdogTimer    = null;
-  if (rec)     { try { rec.onend = null; rec.stop();     } catch(e) {} rec     = null; }
-  if (recNext) { try { recNext.onend = null; recNext.stop(); } catch(e) {} recNext = null; }
-  $('startBtn').textContent = '▶ Start';
-  $('startBtn').classList.remove('active');
-  $('mic-indicator').classList.remove('active');
-  $('mic-indicator').style.display = 'none';
-  $('interim-text').textContent = '';
-  fullTranscript = ''; cursor = 0; lastCommittedText = '';
-  setStatus('Stopped');
-}
-
-// ── AUTO CONTEXT BUILDER ──────────────────────────────────────────────────────
-function updateSermonContext() {
-  contextUpdateCounter++;
-  if (contextUpdateCounter % 3 !== 0) return;
-  var recentLines = historyLog.slice(-6).join(' ');
-  if (!recentLines) return;
-  fetch(WORKER_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL, max_tokens: 80, stream: false, temperature: 0,
-      system: 'You are summarizing a live sermon for use as translation context. '
-        + 'Given the recent translated lines, write a single short sentence (max 20 words) '
-        + 'describing the current topic, speaker situation, and any key context. '
-        + 'Be specific and factual. No preamble.',
-      messages: [{ role: 'user', content: 'Recent sermon lines:\n' + recentLines + '\n\nSummarize the current context in one short sentence.' }]
-    })
-  }).then(function(r) { return r.json(); }).then(function(d) {
-    if (d && d.content && d.content[0]) {
-      autoSermonContext = d.content[0].text.trim();
-      dbg('ctx: ' + autoSermonContext.slice(0, 50));
-    }
-  }).catch(function() {});
-}
-
-// ── TRANSLATION ───────────────────────────────────────────────────────────────
-async function triggerTranslation(text, retryCount) {
-  retryCount = retryCount || 0;
-  setTranslating(true);
-  setStatus('Translating...', 'translating');
-  clearError();
-
-  var safetyTimeout = setTimeout(function() {
-    if (!isTranslating) return;
-    setTranslating(false);
-    setStatus('🎤 Listening...', 'listening');
-    dbg('safety timeout fired');
-    processQueue();
-  }, 30000);
-
-  var unlockTimeout = setTimeout(function() {
-    if (!isTranslating) return;
-    setTranslating(false);
-    dbg('force unlocked');
-    processQueue();
-  }, 35000);
-
-  var manualTopic = $('sermonContext').value.trim();
-  var topicLine   = manualTopic ? 'Sermon topic: ' + manualTopic + '\n\n' : '';
-  var contextLine = autoSermonContext ? 'Running sermon context (use to interpret ambiguous phrases): ' + autoSermonContext + '\n\n' : '';
-  var historyStr  = historyLog.length
-    ? 'Previous lines for context (do not extend or repeat them):\n'
-      + historyLog.slice(-8).map(function(h) { return 'EN: ' + h; }).join('\n')
-      + '\n\nIf the new chunk continues the thought from the last line above, begin with a natural connector (e.g. "And", "So", "But", "Because") rather than restarting a new sentence cold.\n\n'
-    : '';
-
-  var systemPrompt =
-    'You are a live interpreter for a Korean Christian worship service. '
-    + 'Translate the full meaning of what was said into natural, faithful English. '
-    + 'The input may begin mid-sentence due to live audio chunking — if so, begin your translation '
-    + 'from the first complete word or thought in the input, and always end at a natural sentence '
-    + 'or clause boundary, never mid-thought. '
-    + 'Do not add or expand beyond what was spoken, but never omit or skip entire sentences or thoughts — '
-    + 'every complete idea the speaker expressed must appear in the translation. '
-    + 'Pay close attention to colloquial and conversational Korean — informal phrasing, negations, '
-    + 'and implied subjects must be rendered accurately. '
-    + 'When colloquial expressions are ambiguous, use the sermon context and prior lines to interpret '
-    + 'the most natural meaning rather than a literal one. '
-    + 'Preserve the tone and theological weight of what was said. '
-    + 'Use standard English Bible vocabulary for theological terms '
-    + '(e.g. grace, redemption, sanctification, covenant). '
-    + 'Infer omitted grammatical subjects only when Korean grammar requires it, '
-    + 'but never add content beyond what was spoken. '
-    + 'Speech recognition often mishears Korean Bible book names — correct them using context '
-    + '(e.g. 사사기=Judges, 열왕기=Kings, 이사야=Isaiah).\n\n'
-    + 'AUDIENCE ADDRESS: The word 여러분 is often used as a mid-sentence vocative — the speaker pausing to address the congregation ("dear friends," "beloved") without making them part of the sentence\'s meaning. '
-    + 'Distinguish carefully: if 여러분 is interjected between clauses with no grammatical role (e.g. 아브라함이, 여러분, 기다렸습니다 → "Abraham waited"), omit it or render it as a light interjection ("you know," "dear friends,") that does not alter the subject or object of the sentence. '
-    + 'Only treat 여러분 as a meaningful grammatical participant (subject, object, indirect object) when it is syntactically part of the clause — e.g. 여러분도 기다려야 합니다 → "You also must wait."\n\n'
-    + 'PROPER NOUNS: '
-    + 'Always use a person\'s name exactly as spoken — never substitute a pronoun (he/she/they) '
-    + 'when the speaker used the person\'s name. '
-    + 'Preserve Korean cultural references such as TV show names, place names, and brand names '
-    + 'in their most widely recognized English form (e.g. 무한도전 → "Infinite Challenge", '
-    + '여의도 → "Yeouido"). '
-    + 'When a Korean proper noun has a well-known natural English equivalent, use it '
-    + '(e.g. 서울 → "Seoul", 예수님 → "Jesus", 하나님 → "God"). '
-    + 'Do not invent anglicizations for names with no standard English form — '
-    + 'keep the Korean romanization in that case.\n\n'
-    + 'IMPORTANT: Never output "…" or any placeholder. Always translate what was said, even filler '
-    + 'words or transitional expressions (e.g. 아/음/그/네 → "Yes" / "And" / omit gracefully). '
-    + 'If the input is genuinely unintelligible noise, respond with a single space " ". '
-    + 'Never skip or omit a response.\n\n'
-    + 'PUNCTUATION: Always end your translation with sentence-ending punctuation: '
-    + 'a period (.), exclamation point (!), or question mark (?). '
-    + 'If the translation ends with a closing quotation mark, punctuation goes inside: ." or !" or ?"\n\n'
-    + 'Common Korean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) '
-    + '신명기(Deuteronomy) 여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) '
-    + '열왕기상하(1-2Kings) 역대상하(1-2Chronicles) 에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) '
-    + '욥기(Job) 시편(Psalms) 잠언(Proverbs) 전도서(Ecclesiastes) 이사야(Isaiah) 예레미야(Jeremiah) '
-    + '에스겔(Ezekiel) 다니엘(Daniel) 마태복음(Matthew) 마가복음(Mark) 누가복음(Luke) 요한복음(John) '
-    + '사도행전(Acts) 로마서(Romans) 고린도전후서(1-2Corinthians) 갈라디아서(Galatians) '
-    + '에베소서(Ephesians) 빌립보서(Philippians) 골로새서(Colossians) 히브리서(Hebrews) '
-    + '야고보서(James) 요한계시록(Revelation)\n\n'
-    + 'Respond with ONLY the translation, nothing else.';
-
-  try {
-    var res = await fetch(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODEL, max_tokens: 600, stream: false, temperature: 0,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: topicLine + contextLine + historyStr + 'Translate:\n' + text }]
-      })
-    });
-
-    clearTimeout(safetyTimeout);
-    clearTimeout(unlockTimeout);
-
-    if (!res.ok) {
-      var errData = await res.json().catch(function() { return {}; });
-      var status = res.status;
-      if (status === 529 && retryCount < 4) {
-        var delay = Math.pow(2, retryCount) * 2000;
-        dbg('overloaded, retry ' + (retryCount + 1) + ' in ' + (delay/1000) + 's');
-        setStatus('Retrying...', 'translating');
-        setTranslating(false);
-        setTimeout(function() { triggerTranslation(text, retryCount + 1); }, delay);
-        return;
-      }
-      showError('API error: ' + (errData && errData.error ? errData.error.message : 'HTTP ' + status));
-      setTranslating(false);
-      setStatus('🎤 Listening...', 'listening');
-      processQueue();
-      return;
     }
 
-    var data   = await res.json();
-    var result = data && data.content && data.content[0] ? data.content[0].text.trim() : null;
-
-    if (result && /^[\s\.…]+$/.test(result)) result = null;
-    if (result) {
-      var koRatio = (result.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g) || []).length / result.length;
-      if (koRatio > 0.5) result = null;
+    async function loadMembers() {
+      var { data } = await supa.from('profiles').select('*').eq('church_id', currentChurch.id).order('created_at');
+      var list = document.getElementById('memberList');
+      if (!data || !data.length) { list.innerHTML = '<div class="empty-state">No members yet</div>'; return; }
+      list.innerHTML = data.map(function(m) {
+        var isOwner = m.id === currentUser.id;
+        return '<div class="member-item">' +
+          '<div class="member-info">' +
+            '<div class="member-name">' + escHtml(m.full_name || '—') + (isOwner ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : '') + '</div>' +
+            '<div class="member-email">' + escHtml(m.email || '') + '</div>' +
+          '</div>' +
+          '<span class="badge ' + (isOwner ? 'owner' : '') + '">' + (isOwner ? 'owner' : 'member') + '</span>' +
+        '</div>';
+      }).join('');
     }
 
-    if (result) {
-      var lastStop = Math.max(result.lastIndexOf('.'), result.lastIndexOf('!'), result.lastIndexOf('?'));
-      if (lastStop > 0 && lastStop > result.length * 0.6) {
-        result = result.slice(0, lastStop + 1).trim();
+    async function inviteMember() {
+      var name  = document.getElementById('inviteName').value.trim();
+      var email = document.getElementById('inviteEmail').value.trim();
+      var errEl = document.getElementById('inviteError');
+      errEl.style.display = 'none';
+      if (!name || !email) { errEl.textContent = 'Please enter both name and email.'; errEl.style.display = 'block'; return; }
+      var btn = document.getElementById('inviteBtn');
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Inviting…';
+      try {
+        var tempPassword = Math.random().toString(36).slice(2) + 'Aa1!';
+        var { data: authData, error: authError } = await supa.auth.signUp({ email, password: tempPassword, options: { data: { full_name: name } } });
+        if (authError) throw authError;
+        var { error: profileError } = await supa.from('profiles').insert({ id: authData.user.id, church_id: currentChurch.id, role: 'member', full_name: name, email });
+        if (profileError) throw profileError;
+        document.getElementById('inviteName').value = '';
+        document.getElementById('inviteEmail').value = '';
+        showToast('Invite sent to ' + email);
+        await loadMembers();
+      } catch(err) {
+        errEl.textContent = err.message || 'Could not invite member.';
+        errEl.style.display = 'block';
+      } finally { btn.disabled = false; btn.textContent = 'Invite'; }
+    }
+
+    async function loadFolders() {
+      var { data } = await supa.from('folders').select('*').eq('church_id', currentChurch.id).order('created_at');
+      allFolders = data || [];
+    }
+
+    function toggleNewFolder() {
+      var row = document.getElementById('newFolderRow');
+      var visible = row.style.display !== 'none';
+      row.style.display = visible ? 'none' : 'flex';
+      if (!visible) setTimeout(function() { document.getElementById('newFolderInput').focus(); }, 50);
+    }
+
+    async function createFolder() {
+      var name = document.getElementById('newFolderInput').value.trim();
+      if (!name) return;
+      var { data, error } = await supa.from('folders').insert({ church_id: currentChurch.id, name: name }).select().single();
+      if (error) { showToast('Could not create folder.'); return; }
+      allFolders.push(data);
+      document.getElementById('newFolderInput').value = '';
+      toggleNewFolder();
+      renderSessions();
+      showToast('Folder created.');
+    }
+
+    async function renameFolder(folderId) {
+      var folder = allFolders.find(function(f) { return f.id === folderId; });
+      if (!folder) return;
+      var newName = prompt('Rename folder:', folder.name);
+      if (!newName || newName === folder.name) return;
+      var { error } = await supa.from('folders').update({ name: newName }).eq('id', folderId);
+      if (error) { showToast('Could not rename folder.'); return; }
+      folder.name = newName;
+      renderSessions();
+      showToast('Folder renamed.');
+    }
+
+    async function deleteFolder(folderId) {
+      if (!confirm('Delete this folder? Sessions inside will become ungrouped.')) return;
+      var { error } = await supa.from('folders').delete().eq('id', folderId);
+      if (error) { showToast('Could not delete folder.'); return; }
+      allFolders = allFolders.filter(function(f) { return f.id !== folderId; });
+      allSessions.forEach(function(s) { if (s.folder_id === folderId) s.folder_id = null; });
+      renderSessions();
+      showToast('Folder deleted.');
+    }
+
+    async function loadSessions() {
+      var { data } = await supa.from('sessions').select('*').eq('church_id', currentChurch.id).not('ended_at', 'is', null).order('started_at', { ascending: false });
+      allSessions = data || [];
+    }
+
+    function renderSessions() {
+      var area    = document.getElementById('sessionsArea');
+      var active  = allSessions.filter(function(s) { return !s.deleted_at; });
+      var trashed = allSessions.filter(function(s) { return s.deleted_at; });
+
+      if (!active.length) {
+        area.innerHTML = '<div class="empty-state">No sessions yet — sessions appear here after the operator ends them</div>';
       } else {
-        result = result.replace(/[\s,\-–—]+$/, '').trim();
+        var html = '';
+        var ungrouped = active.filter(function(s) { return !s.folder_id; });
+        ungrouped.forEach(function(s) { html += renderSessionItem(s, true); });
+        allFolders.forEach(function(folder) {
+          var sessions = active.filter(function(s) { return s.folder_id === folder.id; });
+          html += '<div class="folder-group" id="folder-' + folder.id + '">' +
+            '<div class="folder-header" onclick="toggleFolder(\'' + folder.id + '\')">' +
+              '<span class="folder-chevron open" id="chevron-' + folder.id + '">▶</span>' +
+              '<span class="folder-icon">📁</span>' +
+              '<span class="folder-name">' + escHtml(folder.name) + '</span>' +
+              '<span class="folder-count">' + sessions.length + ' session' + (sessions.length !== 1 ? 's' : '') + '</span>' +
+              '<div class="folder-actions" onclick="event.stopPropagation()">' +
+                '<button class="folder-action-btn" onclick="renameFolder(\'' + folder.id + '\')">Rename</button>' +
+                '<button class="folder-action-btn del" onclick="deleteFolder(\'' + folder.id + '\')">Delete</button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="folder-body open" id="folderbody-' + folder.id + '">' +
+              (sessions.length
+                ? sessions.map(function(s) { return renderSessionItem(s, false); }).join('')
+                : '<div style="padding:16px;font-size:13px;color:var(--muted)">No sessions in this folder</div>') +
+            '</div>' +
+          '</div>';
+        });
+        area.innerHTML = html;
       }
-      result = ensurePunctuation(result);
-    }
 
-    if (result) {
-      addTranscriptEntry(text, result);
-
-      var doWrite = function() {
-        if (!translationsRef) return;
-        var newRef = translationsRef.push({ text: result, ko: text, timestamp: firebase.database.ServerValue.TIMESTAMP });
-        lastFirebaseKey = newRef.key;
-        displayFinalLine(result, newRef.key);
-        pushHistory(result);
-        updateSermonContext();
-      };
-
-      if (!window._operatorAuthReady) {
-        var waitForAuth = setInterval(function() {
-          if (!window._operatorAuthReady) return;
-          clearInterval(waitForAuth);
-          doWrite();
-        }, 300);
+      // Trash
+      var trashSection = document.getElementById('trashSection');
+      if (trashed.length) {
+        trashSection.style.display = 'block';
+        document.getElementById('trashCount').textContent = '(' + trashed.length + ')';
+        document.getElementById('trashList').innerHTML = trashed.map(function(s) {
+          return '<div class="trash-item">' +
+            '<div class="trash-info">' +
+              '<div class="trash-title">' + escHtml(s.title || 'Untitled') + '</div>' +
+              '<div class="trash-meta">Deleted ' + timeAgo(new Date(s.deleted_at)) + '</div>' +
+            '</div>' +
+            '<div class="trash-controls">' +
+              '<button class="btn-restore" onclick="restoreSession(\'' + s.id + '\')">Restore</button>' +
+              '<button class="btn-danger" onclick="permanentDelete(\'' + s.id + '\')">Delete permanently</button>' +
+            '</div>' +
+          '</div>';
+        }).join('');
       } else {
-        doWrite();
+        trashSection.style.display = 'none';
       }
     }
 
-    setTranslating(false);
-    setStatus('🎤 Listening...', 'listening');
-    dbg('done | q:' + translationQueue.length + (autoSermonContext ? ' | ctx ok' : ''));
-    processQueue();
+    function renderSessionItem(s, ungrouped) {
+      var date = new Date(s.started_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      var dur  = s.ended_at ? formatDuration(new Date(s.started_at), new Date(s.ended_at)) : '';
+      return '<div class="session-item' + (ungrouped ? ' ungrouped' : '') + '" id="session-' + s.id + '">' +
+        '<div class="session-info" onclick="viewSession(\'' + s.id + '\')">' +
+          '<div class="session-title">' + escHtml(s.title || 'Untitled session') + '</div>' +
+          '<div class="session-meta">' + date + (dur ? ' · ' + dur : '') + '</div>' +
+        '</div>' +
+        '<div class="session-controls">' +
+          '<button class="menu-btn" onclick="toggleMenu(\'' + s.id + '\', event)">⋯</button>' +
+          '<div class="dropdown" id="menu-' + s.id + '">' +
+            '<button class="dropdown-item" onclick="viewSession(\'' + s.id + '\')">📄 View review</button>' +
+            '<button class="dropdown-item" onclick="openMoveModal(\'' + s.id + '\')">📁 Move to folder</button>' +
+            '<div class="dropdown-divider"></div>' +
+            '<button class="dropdown-item danger" onclick="trashSession(\'' + s.id + '\')">🗑 Move to trash</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
 
-  } catch(err) {
-    clearTimeout(safetyTimeout);
-    clearTimeout(unlockTimeout);
-    if (err.name !== 'AbortError') showError('Network error: ' + err.message);
-    setTranslating(false);
-    setStatus('🎤 Listening...', 'listening');
-    processQueue();
-  }
-}
-</script>
+    function toggleFolder(folderId) {
+      var body    = document.getElementById('folderbody-' + folderId);
+      var chevron = document.getElementById('chevron-' + folderId);
+      var open    = body.classList.toggle('open');
+      chevron.classList.toggle('open', open);
+    }
+
+    function toggleTrash() {
+      var body    = document.getElementById('trashBody');
+      var chevron = document.getElementById('trashChevron');
+      var open    = body.classList.toggle('open');
+      chevron.textContent = open ? '▼' : '▶';
+    }
+
+    function toggleMenu(sessionId, event) {
+      event.stopPropagation();
+      if (openMenuId && openMenuId !== sessionId) {
+        var old = document.getElementById('menu-' + openMenuId);
+        if (old) old.classList.remove('open');
+      }
+      var menu = document.getElementById('menu-' + sessionId);
+      menu.classList.toggle('open');
+      openMenuId = menu.classList.contains('open') ? sessionId : null;
+    }
+
+    document.addEventListener('click', function() {
+      if (openMenuId) {
+        var menu = document.getElementById('menu-' + openMenuId);
+        if (menu) menu.classList.remove('open');
+        openMenuId = null;
+      }
+    });
+
+    function viewSession(id) {
+      window.location.href = 'review.html?church=' + currentChurch.slug + '&session=' + id;
+    }
+
+    async function trashSession(id) {
+      closeMenus();
+      var { error } = await supa.from('sessions').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+      if (error) { showToast('Could not move to trash.'); return; }
+      var s = allSessions.find(function(x) { return x.id === id; });
+      if (s) s.deleted_at = new Date().toISOString();
+      renderSessions();
+      showToast('Moved to trash.');
+    }
+
+    async function restoreSession(id) {
+      var { error } = await supa.from('sessions').update({ deleted_at: null }).eq('id', id);
+      if (error) { showToast('Could not restore session.'); return; }
+      var s = allSessions.find(function(x) { return x.id === id; });
+      if (s) s.deleted_at = null;
+      renderSessions();
+      showToast('Session restored.');
+    }
+
+    async function permanentDelete(id) {
+      if (!confirm('Permanently delete this session and all its translations? This cannot be undone.')) return;
+      var s = allSessions.find(function(x) { return x.id === id; });
+      // Delete from Firebase
+      if (s && currentChurch) {
+        try { await fbDb.ref('translations/' + currentChurch.slug + '/' + id).remove(); } catch(e) {}
+      }
+      // Delete from Supabase
+      var { error } = await supa.from('sessions').delete().eq('id', id);
+      if (error) { showToast('Could not delete session.'); return; }
+      allSessions = allSessions.filter(function(x) { return x.id !== id; });
+      renderSessions();
+      showToast('Session permanently deleted.');
+    }
+
+    function openMoveModal(sessionId) {
+      closeMenus();
+      movingSessionId = sessionId;
+      var html = '<div class="folder-option" onclick="moveToFolder(null)">📂 No folder (ungrouped)</div>';
+      allFolders.forEach(function(f) {
+        html += '<div class="folder-option" onclick="moveToFolder(\'' + f.id + '\')">📁 ' + escHtml(f.name) + '</div>';
+      });
+      if (!allFolders.length) html += '<p style="font-size:13px;color:var(--muted);margin-bottom:8px">No folders yet. Create one from the Sessions card.</p>';
+      document.getElementById('folderOptions').innerHTML = html;
+      document.getElementById('moveModal').classList.add('open');
+    }
+
+    function closeMoveModal() {
+      document.getElementById('moveModal').classList.remove('open');
+      movingSessionId = null;
+    }
+
+    async function moveToFolder(folderId) {
+      closeMoveModal();
+      if (!movingSessionId) return;
+      var { error } = await supa.from('sessions').update({ folder_id: folderId }).eq('id', movingSessionId);
+      if (error) { showToast('Could not move session.'); return; }
+      var s = allSessions.find(function(x) { return x.id === movingSessionId; });
+      if (s) s.folder_id = folderId;
+      renderSessions();
+      showToast(folderId ? 'Session moved to folder.' : 'Session ungrouped.');
+    }
+
+    function closeMenus() {
+      if (openMenuId) {
+        var menu = document.getElementById('menu-' + openMenuId);
+        if (menu) menu.classList.remove('open');
+        openMenuId = null;
+      }
+    }
+
+    function formatDuration(start, end) {
+      var mins = Math.round((end - start) / 60000);
+      if (mins < 60) return mins + 'm';
+      return Math.floor(mins/60) + 'h ' + (mins % 60) + 'm';
+    }
+
+    function timeAgo(date) {
+      var mins = Math.round((Date.now() - date) / 60000);
+      if (mins < 60) return mins + 'm ago';
+      if (mins < 1440) return Math.floor(mins/60) + 'h ago';
+      return Math.floor(mins/1440) + 'd ago';
+    }
+
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    async function handleSignOut() { await supa.auth.signOut(); window.location.href = 'login.html'; }
+
+    init();
+  </script>
 </body>
 </html>
