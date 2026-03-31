@@ -314,7 +314,7 @@
   <script>
     const SUPABASE_URL = 'https://zhrkwgpjvgessiqmmefn.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpocmt3Z3Bqdmdlc3NpcW1tZWZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTUzMjksImV4cCI6MjA5MDQ3MTMyOX0.JoDcJXtL5il1sprbdf2M3XyyyN7BtdwmwY3hP3BrQ8Q';
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     function showError(msg) {
       const el = document.getElementById('errorMsg');
@@ -342,7 +342,7 @@
       document.getElementById('errorMsg').style.display = 'none';
 
       try {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supa.auth.signInWithPassword({ email, password });
         if (error) throw error;
         window.location.href = 'dashboard.html';
       } catch (err) {
@@ -371,7 +371,7 @@
       btn.textContent = 'Sending…';
 
       try {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        const { error } = await supa.auth.resetPasswordForEmail(email, {
           redirectTo: window.location.origin + '/dashboard.html'
         });
         if (error) throw error;
