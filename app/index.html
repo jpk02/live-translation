@@ -343,7 +343,13 @@ body.light #viewerThemeBtn:hover {
     </div>
   </div>
   <div class="ctrl-right">
-    <button id="themeBtn" class="ctrl-btn" onclick="toggleTheme()" title="Toggle light/dark mode">☀</button>
+    <button id="themeBtn" class="ctrl-btn" onclick="toggleTheme()" title="Toggle light/dark mode" style="display:flex;align-items:center;justify-content:center;width:32px;padding:0">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M12 3v18"/>
+        <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
     <button id="fullscreenBtn" class="ctrl-btn" onclick="toggleFullscreen()">⛶</button>
   </div>
 </div>
@@ -372,7 +378,13 @@ body.light #viewerThemeBtn:hover {
 </div>
 
 <div id="edit-hint" class="edit-hint">Double-click any line to edit · Enter to save · Esc to cancel</div>
-<button id="viewerThemeBtn" onclick="toggleTheme()" title="Toggle light/dark mode"></button>
+<button id="viewerThemeBtn" onclick="toggleTheme()" title="Toggle light/dark mode">
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="9"/>
+    <path d="M12 3v18"/>
+    <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/>
+  </svg>
+</button>
 <div id="new-indicator" onclick="jumpToBottom()">New translation ↓</div>
 <div id="mic-indicator"></div>
 <div id="debug-badge">ready</div>
@@ -465,17 +477,14 @@ function hideAuthGate() {
 }
 
 // ── MAIN INIT ─────────────────────────────────────────────────────────────────
-// No church slug = show error
 if (!churchSlug) {
   document.addEventListener('DOMContentLoaded', function() {
     showAuthGate('No church specified. Please use a valid link.');
   });
 } else if (isOperator) {
-  // Operator: must be logged in via Supabase and belong to this church
   showAuthGate('Verifying your access…', false);
   initOperator();
 } else {
-  // Viewer / review: no login needed
   auth.signInAnonymously().catch(function(err) {
     console.warn('Firebase anon auth error:', err.message);
   });
@@ -485,14 +494,12 @@ if (!churchSlug) {
 // ── OPERATOR INIT ─────────────────────────────────────────────────────────────
 async function initOperator() {
   try {
-    // 1. Check Supabase session
     var { data: { user } } = await supa.auth.getUser();
     if (!user) {
       showAuthGate('You need to sign in to use the operator view.', true);
       return;
     }
 
-    // 2. Load profile and verify church membership
     var { data: profile, error: profileError } = await supa
       .from('profiles')
       .select('*, churches(*)')
@@ -509,10 +516,8 @@ async function initOperator() {
       return;
     }
 
-    // 3. All good — operator is verified, session will be created on Start
     currentChurchName = profile.churches.name;
 
-    // Firebase anon auth for writes
     auth.signInAnonymously().catch(function(err) {
       console.warn('Firebase anon auth error:', err.message);
     });
@@ -541,7 +546,6 @@ function initViewer() {
   async function maybeInitViewer() {
     if (!domReady || !authReady || !authUser) return;
 
-    // Look up active session for this church via Supabase
     var { data: church } = await supa
       .from('churches')
       .select('id, name')
@@ -566,10 +570,7 @@ function initViewer() {
       .single();
 
     if (!session) {
-      $('church-name').textContent = church.name.toUpperCase();
-      // No active session — show waiting message
       $('placeholder').innerHTML = '<h1>' + escHtml(church.name.toUpperCase()) + '</h1><p style="color:#333;font-size:16px;margin-top:20px;font-weight:300;letter-spacing:2px;">Waiting for service to begin…</p>';
-      // Poll every 15s for a session to start
       setTimeout(function() { location.reload(); }, 15000);
       return;
     }
@@ -587,7 +588,6 @@ function initViewer() {
     var vBtn = $('viewerThemeBtn');
     if (vBtn) {
       vBtn.style.display = 'flex';
-      vBtn.textContent = document.body.classList.contains('light') ? '☾' : '☀';
     }
 
     var seenKeys = new Set();
@@ -737,14 +737,6 @@ function escHtml(s) {
 function toggleTheme() {
   var isLight = document.body.classList.toggle('light');
   localStorage.setItem('theme', isLight ? 'light' : 'dark');
-  syncThemeButtons(isLight);
-}
-
-function syncThemeButtons(isLight) {
-  var operatorBtn = $('themeBtn');
-  var viewerBtn   = $('viewerThemeBtn');
-  if (operatorBtn) operatorBtn.textContent = isLight ? '☾' : '☀';
-  if (viewerBtn)   viewerBtn.textContent   = isLight ? '☾' : '☀';
 }
 
 // Apply saved theme on load
@@ -752,9 +744,6 @@ function syncThemeButtons(isLight) {
   var saved = localStorage.getItem('theme');
   if (saved === 'light') {
     document.body.classList.add('light');
-    document.addEventListener('DOMContentLoaded', function() {
-      syncThemeButtons(true);
-    });
   }
 })();
 
@@ -901,7 +890,6 @@ async function toggleListening() {
     await endSession();
     return;
   }
-  // Create a session if none exists
   if (!translationsRef) {
     await createSession();
   }
