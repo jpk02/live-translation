@@ -584,42 +584,48 @@ function initViewer() {
     $('interim-text').style.display   = 'none';
     $('debug-badge').style.display    = 'none';
     $('mic-indicator').style.display  = 'none';
-    // Show floating theme toggle for viewers
     var vBtn = $('viewerThemeBtn');
-    if (vBtn) {
-      vBtn.style.display = 'flex';
-    }
+    if (vBtn) { vBtn.style.display = 'flex'; }
 
     var seenKeys = new Set();
 
-    translationsRef.on('value', function(snap) {
-      if (!snap.val()) {
-        $('translation-lines').innerHTML = '';
-        $('placeholder').style.display   = 'block';
-        seenKeys.clear();
-      }
-    });
-
+    // Load existing translations, then set up live listeners
     translationsRef.limitToLast(500).once('value', function(snap) {
-      snap.forEach(function(child) {
-        seenKeys.add(child.key);
-        var it = child.val();
-        if (it && it.text) displayFinalLine(it.text);
-      });
+      if (!snap.val()) {
+        $('placeholder').style.display = 'block';
+      } else {
+        snap.forEach(function(child) {
+          seenKeys.add(child.key);
+          var it = child.val();
+          if (it && it.text) displayFinalLine(it.text, child.key);
+        });
+      }
       setTimeout(scrollToBottom, 100);
 
+      // New translations added by operator
       translationsRef.on('child_added', function(snap) {
         if (seenKeys.has(snap.key)) return;
         seenKeys.add(snap.key);
         var it = snap.val();
-        if (it && it.text) displayFinalLine(it.text);
+        if (it && it.text) displayFinalLine(it.text, snap.key);
       });
 
+      // Operator edits — update the matching line in place
       translationsRef.on('child_changed', function(snap) {
         var it = snap.val();
         if (it && it.text) {
           var el = document.querySelector('[data-fbkey="' + snap.key + '"]');
           if (el) el.textContent = it.text;
+        }
+      });
+
+      // Operator clears — remove matching line
+      translationsRef.on('child_removed', function(snap) {
+        var el = document.querySelector('[data-fbkey="' + snap.key + '"]');
+        if (el) el.parentNode.removeChild(el);
+        seenKeys.delete(snap.key);
+        if (!$('translation-lines').children.length) {
+          $('placeholder').style.display = 'block';
         }
       });
     });
@@ -742,9 +748,7 @@ function toggleTheme() {
 // Apply saved theme on load
 (function() {
   var saved = localStorage.getItem('theme');
-  if (saved === 'light') {
-    document.body.classList.add('light');
-  }
+  if (saved === 'light') document.body.classList.add('light');
 })();
 
 function toggleFullscreen() {
@@ -765,23 +769,32 @@ function reclassLines() {
 function ensurePunctuation(text) {
   if (!text) return text;
   text = text.trim();
+
+  // Clean up comma before terminal punctuation
   text = text.replace(/,([.!?])(["'\u201d]?)$/, '$1$2');
   text = text.replace(/,(["'\u201d])$/, '$1');
+
+  // Detect open/unmatched quotation marks — we are mid-quote
   var straightCount   = (text.match(/"/g) || []).length;
   var hasOpenStraight = straightCount % 2 !== 0;
   var curlyOpen       = (text.match(/\u201c/g) || []).length;
   var curlyClose      = (text.match(/\u201d/g) || []).length;
-  var hasOpenCurly    = curlyOpen > curlyClose;
-  var needsCloseQuote = hasOpenStraight || hasOpenCurly;
-  var closeQ          = hasOpenCurly ? '\u201d' : '"';
-  var core = text.replace(/["'\u201d]$/, '');
-  var endsWithPunct = /[.!?]$/.test(core) || /[.!?]["'\u201d]$/.test(text);
-  if (endsWithPunct) {
-    if (needsCloseQuote && !/["'\u201d]$/.test(text)) return text + closeQ;
-    return text;
-  }
+  var midQuote        = hasOpenStraight || (curlyOpen > curlyClose);
+
+  // If we're mid-quote, the sentence is not done — return as-is, no period, no close quote
+  if (midQuote) return text;
+
+  // Detect trailing conjunction — sentence is not complete
+  var trailingConjunction = /\b(and|but|or|so|yet|for|nor|because|when|that|which|who|as|if|though|although|while|with)\s*,?\s*$/i;
+  if (trailingConjunction.test(text)) return text;
+
+  // Already ends with sentence-ending punctuation (optionally followed by a close quote)
+  if (/[.!?]["'\u201d]?$/.test(text)) return text;
+
+  // Ends with a closing quote mark — put period inside
   if (/["'\u201d]$/.test(text)) return text.slice(0, -1) + '.' + text.slice(-1);
-  if (needsCloseQuote) return text + '.' + closeQ;
+
+  // Default: add period
   return text + '.';
 }
 
@@ -1167,9 +1180,16 @@ async function triggerTranslation(text, retryCount) {
     + 'words or transitional expressions (e.g. 아/음/그/네 → "Yes" / "And" / omit gracefully). '
     + 'If the input is genuinely unintelligible noise, respond with a single space " ". '
     + 'Never skip or omit a response.\n\n'
-    + 'PUNCTUATION: Always end your translation with sentence-ending punctuation: '
-    + 'a period (.), exclamation point (!), or question mark (?). '
-    + 'If the translation ends with a closing quotation mark, punctuation goes inside: ." or !" or ?"\n\n'
+    + 'PUNCTUATION: Always end your translation with sentence-ending punctuation — a period (.), '
+    + 'exclamation point (!), or question mark (?) — UNLESS one of the following is true:\n'
+    + '1. The translation ends mid-quotation (you opened a quotation mark but have not closed it). '
+    + 'In that case, do NOT add a closing quotation mark or period — leave the line open. '
+    + 'The quotation will continue in the next audio chunk.\n'
+    + '2. The translation ends with a hanging conjunction or incomplete clause '
+    + '(e.g. "and", "but", "because", "when", "so that") — in that case, do NOT add a period. '
+    + 'Leave the line as-is so the next chunk can continue the sentence naturally.\n'
+    + 'If the translation ends with a closing quotation mark and the sentence is complete, '
+    + 'punctuation goes inside: .\u201d or !\u201d or ?\u201d\n\n'
     + 'Common Korean Bible books: 창세기(Genesis) 출애굽기(Exodus) 레위기(Leviticus) 민수기(Numbers) '
     + '신명기(Deuteronomy) 여호수아(Joshua) 사사기(Judges) 룻기(Ruth) 사무엘상하(1-2Samuel) '
     + '열왕기상하(1-2Kings) 역대상하(1-2Chronicles) 에스라(Ezra) 느헤미야(Nehemiah) 에스더(Esther) '
@@ -1222,12 +1242,23 @@ async function triggerTranslation(text, retryCount) {
     }
 
     if (result) {
-      var lastStop = Math.max(result.lastIndexOf('.'), result.lastIndexOf('!'), result.lastIndexOf('?'));
-      if (lastStop > 0 && lastStop > result.length * 0.6) {
-        result = result.slice(0, lastStop + 1).trim();
-      } else {
-        result = result.replace(/[\s,\-–—]+$/, '').trim();
+      // Only trim to last sentence boundary if the result is clearly complete
+      // (i.e. not mid-quote and not ending with a conjunction)
+      var straightCount = (result.match(/"/g) || []).length;
+      var curlyOpen     = (result.match(/\u201c/g) || []).length;
+      var curlyClose    = (result.match(/\u201d/g) || []).length;
+      var isMidQuote    = (straightCount % 2 !== 0) || (curlyOpen > curlyClose);
+      var trailingConj  = /\b(and|but|or|so|yet|for|nor|because|when|that|which|who|as|if|though|although|while|with)\s*,?\s*$/i.test(result);
+
+      if (!isMidQuote && !trailingConj) {
+        var lastStop = Math.max(result.lastIndexOf('.'), result.lastIndexOf('!'), result.lastIndexOf('?'));
+        if (lastStop > 0 && lastStop > result.length * 0.6) {
+          result = result.slice(0, lastStop + 1).trim();
+        } else {
+          result = result.replace(/[\s,\-–—]+$/, '').trim();
+        }
       }
+
       result = ensurePunctuation(result);
     }
 
